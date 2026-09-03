@@ -29,7 +29,8 @@ on conflict (key) do nothing;
 --        sugar_g = base_sugar_g + sugar_g_full * 甜度係數
 --    base_kcal 已含配料與奶的熱量（含它們自帶的糖），base_sugar_g 是那部分的糖，
 --    所以你點「無糖珍奶」時糖量不會顯示成 0——珍珠本身就是糖。
---    甜度係數：無糖 0 / 微糖 0.3 / 半糖 0.5 / 少糖 0.7 / 全糖 1.0
+--    甜度係數：無糖 0 / 微糖 0.15 / 半糖 0.5 / 少糖 0.7 / 全糖 1.0
+--    沒指定甜度時當無糖。
 -- ------------------------------------------------------------
 create table if not exists drinks (
   id              bigserial primary key,
@@ -51,11 +52,13 @@ create table if not exists drinks (
 
 create index if not exists drinks_brand_idx on drinks (brand);
 
--- 甜度字串 → 係數。看不懂的字串一律當全糖（寧可高估，不要低估）
+-- 甜度字串 → 係數。
+--   沒講（null／空字串）＝無糖，因為使用者的常態就是無糖。
+--   有講但看不懂的字串＝全糖（寧可高估，不要低估）。
 create or replace function sweetness_factor(s text)
 returns numeric language sql immutable as $$
   select case
-    when s is null then 1.0
+    when s is null or btrim(s) = '' then 0.0
     when s ~ '無糖|去糖|不加糖|零糖|0分|完全不加' then 0.0
     when s ~ '微糖|一分|1分|10%'                  then 0.15
     when s ~ '二分|2分|20%'                       then 0.2

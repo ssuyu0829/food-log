@@ -79,7 +79,9 @@ export function parseDrink(input: string): ParsedDrink {
   }
 
   // 2. 甜度（先比對長的，避免「微糖」被「糖」誤吃）
-  let sweetness = "全糖";
+  //    沒講甜度時當「無糖」——使用者的常態就是無糖鮮奶茶，
+  //    講了甜度反而是例外。認得出來的字串一律照字串走。
+  let sweetness = "無糖";
   let sweetFound = false;
   for (const [re, label] of SWEET_PATTERNS) {
     const m = s.match(re);

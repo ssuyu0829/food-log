@@ -30,16 +30,30 @@ Deno.test("解析：沒講品牌與杯型時的預設值", () => {
   assertEquals(p.looksLikeDrink, true);
 });
 
-Deno.test("解析：沒講甜度就當全糖（寧可高估）", () => {
+Deno.test("解析：沒講甜度就當無糖（使用者的常態）", () => {
   const p = parseDrink("清心 多多綠");
   assertEquals(p.brand, "清心福全");
-  assertEquals(p.sweetness, "全糖");
+  assertEquals(p.sweetness, "無糖");
+});
+
+Deno.test("解析：最常喝的『鮮奶茶』只打三個字也要成立", () => {
+  const p = parseDrink("鮮奶茶");
+  assertEquals(p.looksLikeDrink, true);
+  assertEquals(p.sweetness, "無糖");
+  assertEquals(p.size, "M");
+  assertEquals(p.itemText, "鮮奶茶");
+});
+
+Deno.test("解析：講了甜度就照講的走，不會被預設值蓋掉", () => {
+  assertEquals(parseDrink("鮮奶茶 半糖").sweetness, "半糖");
+  assertEquals(parseDrink("鮮奶茶全糖大").sweetness, "全糖");
 });
 
 Deno.test("解析：「去冰」不可以被當成「去糖」", () => {
   const p = parseDrink("紅茶去冰");
-  assertEquals(p.sweetness, "全糖");
+  assertEquals(p.sweetness, "無糖");   // 沒講甜度的預設值，不是因為讀到「去」
   assertEquals(p.ice, "去冰");
+  assertEquals(parseDrink("紅茶全糖去冰").sweetness, "全糖");  // 有講就照講的
 });
 
 Deno.test("解析：全形數字與標點", () => {
@@ -86,6 +100,20 @@ Deno.test("熱量：半糖剛好是糖水的一半", () => {
   assertEquals(half.sugar_g, 26 + 18);
 });
 
-Deno.test("熱量：看不懂的甜度字串一律當全糖", () => {
+Deno.test("熱量：有講但看不懂的甜度字串仍當全糖（寧可高估）", () => {
   assertEquals(computeNutrition(珍奶, "M", "隨便").kcal, computeNutrition(珍奶, "M", "全糖").kcal);
+});
+
+Deno.test("常態路徑：無糖鮮奶茶", () => {
+  const 鮮奶茶: DrinkRow = {
+    id: 2, brand: "通用", item: "鮮奶茶", aliases: ["鮮奶紅茶", "歐蕾"],
+    base_kcal_m: 165, base_kcal_l: 230,
+    sugar_g_full_m: 36, sugar_g_full_l: 50,
+    base_sugar_g_m: 14, base_sugar_g_l: 20,
+    source_type: "estimated", source_url: null,
+  };
+  const p = parseDrink("鮮奶茶");
+  const n = computeNutrition(鮮奶茶, p.size, p.sweetness);
+  assertEquals(n.kcal, 165);     // 只有鮮奶與茶的熱量，沒有糖水
+  assertEquals(n.sugar_g, 14);   // 乳糖，不是加的糖
 });

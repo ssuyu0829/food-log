@@ -30,7 +30,7 @@ on conflict (key) do nothing;
 --    base_kcal 已含配料與奶的熱量（含它們自帶的糖），base_sugar_g 是那部分的糖，
 --    所以你點「無糖珍奶」時糖量不會顯示成 0——珍珠本身就是糖。
 --    甜度係數：無糖 0 / 微糖 0.15 / 半糖 0.5 / 少糖 0.7 / 全糖 1.0
---    沒指定甜度時當無糖。
+--    沒指定甜度時當無糖；沒指定杯型時當大杯（只有明確講中／小杯才算 M）。
 -- ------------------------------------------------------------
 create table if not exists drinks (
   id              bigserial primary key,
@@ -78,13 +78,13 @@ create or replace function drink_nutrition(
 language sql stable as $$
   select
     round(
-      case when p_size = 'L' then d.base_kcal_l else d.base_kcal_m end
-      + (case when p_size = 'L' then d.sugar_g_full_l else d.sugar_g_full_m end)
+      case when p_size = 'M' then d.base_kcal_m else d.base_kcal_l end
+      + (case when p_size = 'M' then d.sugar_g_full_m else d.sugar_g_full_l end)
         * sweetness_factor(p_sweetness) * 4
     ),
     round(
-      (case when p_size = 'L' then d.base_sugar_g_l else d.base_sugar_g_m end)
-      + (case when p_size = 'L' then d.sugar_g_full_l else d.sugar_g_full_m end)
+      (case when p_size = 'M' then d.base_sugar_g_m else d.base_sugar_g_l end)
+      + (case when p_size = 'M' then d.sugar_g_full_m else d.sugar_g_full_l end)
         * sweetness_factor(p_sweetness), 1
     )
   from drinks d where d.id = p_drink_id;

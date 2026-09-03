@@ -95,8 +95,9 @@ export function parseDrink(input: string): ParsedDrink {
     if (m) { ice = label; s = s.replace(re, " "); break; }
   }
 
-  // 4. 杯型。注意順序：先吃掉「大杯/中杯」再處理單字的「大/中/小」
-  let size: "M" | "L" = "M";
+  // 4. 杯型。沒講時當大杯（少算熱量比多算危險）。
+  //    注意順序：先吃掉「大杯/中杯」再處理單字的「大/中/小」
+  let size: "M" | "L" = "L";
   if (/大杯|特大|700|L號/i.test(s)) { size = "L"; s = s.replace(/大杯|特大|700\s*(cc|ml)?|L號/gi, " "); }
   else if (/中杯|小杯|500|M號/i.test(s)) { size = "M"; s = s.replace(/中杯|小杯|500\s*(cc|ml)?|M號/gi, " "); }
   else if (/(^|\s)(大|L)(\s|$)/i.test(s)) { size = "L"; s = s.replace(/(^|\s)(大|L)(\s|$)/i, " "); }
@@ -126,9 +127,10 @@ export const SWEET_FACTOR: Record<string, number> = {
 
 export function computeNutrition(row: DrinkRow, size: "M" | "L", sweetness: string) {
   const f = SWEET_FACTOR[sweetness] ?? 1.0;
-  const baseKcal  = size === "L" ? row.base_kcal_l : row.base_kcal_m;
-  const sugarFull = size === "L" ? row.sugar_g_full_l : row.sugar_g_full_m;
-  const baseSugar = size === "L" ? row.base_sugar_g_l : row.base_sugar_g_m;
+  // 與 schema.sql 的 drink_nutrition 一致：只有明確是 M 才用中杯，其餘一律大杯
+  const baseKcal  = size === "M" ? row.base_kcal_m : row.base_kcal_l;
+  const sugarFull = size === "M" ? row.sugar_g_full_m : row.sugar_g_full_l;
+  const baseSugar = size === "M" ? row.base_sugar_g_m : row.base_sugar_g_l;
   return {
     kcal: Math.round(Number(baseKcal) + Number(sugarFull) * f * 4),
     sugar_g: Math.round((Number(baseSugar) + Number(sugarFull) * f) * 10) / 10,

@@ -23,7 +23,7 @@ Deno.test("解析：沒有空格也要能拆", () => {
 Deno.test("解析：沒講品牌與杯型時的預設值", () => {
   const p = parseDrink("珍奶半糖去冰");
   assertEquals(p.brand, null);
-  assertEquals(p.size, "M");          // 預設中杯
+  assertEquals(p.size, "L");          // 沒講杯型＝大杯
   assertEquals(p.sweetness, "半糖");
   assertEquals(p.ice, "去冰");
   assertEquals(p.itemText, "珍奶");
@@ -39,9 +39,16 @@ Deno.test("解析：沒講甜度就當無糖（使用者的常態）", () => {
 Deno.test("解析：最常喝的『鮮奶茶』只打三個字也要成立", () => {
   const p = parseDrink("鮮奶茶");
   assertEquals(p.looksLikeDrink, true);
-  assertEquals(p.sweetness, "無糖");
-  assertEquals(p.size, "M");
+  assertEquals(p.sweetness, "無糖");   // 沒講甜度＝無糖
+  assertEquals(p.size, "L");           // 沒講杯型＝大杯
   assertEquals(p.itemText, "鮮奶茶");
+});
+
+Deno.test("解析：講了中杯就是中杯，不會被大杯預設值蓋掉", () => {
+  assertEquals(parseDrink("鮮奶茶 中杯").size, "M");
+  assertEquals(parseDrink("鮮奶茶 小").size, "M");
+  assertEquals(parseDrink("紅茶 500cc").size, "M");
+  assertEquals(parseDrink("紅茶 M").size, "M");
 });
 
 Deno.test("解析：講了甜度就照講的走，不會被預設值蓋掉", () => {
@@ -114,6 +121,9 @@ Deno.test("常態路徑：無糖鮮奶茶", () => {
   };
   const p = parseDrink("鮮奶茶");
   const n = computeNutrition(鮮奶茶, p.size, p.sweetness);
-  assertEquals(n.kcal, 165);     // 只有鮮奶與茶的熱量，沒有糖水
-  assertEquals(n.sugar_g, 14);   // 乳糖，不是加的糖
+  assertEquals(n.kcal, 230);     // 大杯、只有鮮奶與茶的熱量，沒有糖水
+  assertEquals(n.sugar_g, 20);   // 乳糖，不是加的糖
+
+  const m = computeNutrition(鮮奶茶, "M", "無糖");
+  assertEquals(m.kcal, 165);     // 明講中杯時才會是中杯的數字
 });

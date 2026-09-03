@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>飲食帳本</title>
+<meta name="theme-color" content="#f4efe4" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#14130f" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="帳本">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,500;9..144,700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="grain" aria-hidden="true"></div>
+
+<main id="app">
+
+  <header class="masthead">
+    <div class="masthead__left">
+      <h1>飲食帳本</h1>
+      <p class="masthead__sub" id="today-label">—</p>
+    </div>
+    <div class="seal" id="seal" title="近 7 天手搖杯數">
+      <span class="seal__n" id="seal-n">–</span>
+      <span class="seal__t">手搖</span>
+    </div>
+  </header>
+
+  <section class="ledger-state" id="state">
+    <p class="ledger-state__msg" id="state-msg">正在翻開帳本…</p>
+  </section>
+
+  <section class="today" id="today" hidden>
+    <p class="eyebrow">今日結算</p>
+    <div class="today__figure">
+      <span class="today__kcal" id="today-kcal">0</span>
+      <span class="today__unit">kcal</span>
+    </div>
+    <div class="today__bar" id="today-bar" hidden>
+      <div class="today__fill" id="today-fill"></div>
+      <div class="today__tick"></div>
+    </div>
+    <p class="today__verdict" id="today-verdict"></p>
+    <dl class="macros" id="macros"></dl>
+  </section>
+
+  <section class="chart" id="chart" hidden>
+    <p class="eyebrow">近七日</p>
+    <div class="chart__rows" id="chart-rows"></div>
+    <p class="chart__foot" id="chart-foot"></p>
+  </section>
+
+  <section class="entries" id="entries" hidden>
+    <p class="eyebrow">明細</p>
+    <ol class="entries__list" id="entries-list"></ol>
+  </section>
+
+  <footer class="colophon">
+    <p id="stamp">—</p>
+    <p class="colophon__note">熱量為估算值，誤差約 ±25%。看趨勢，別看單一數字。</p>
+  </footer>
+
+</main>
+
+<div class="lightbox" id="lightbox" hidden>
+  <img id="lightbox-img" alt="">
+</div>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

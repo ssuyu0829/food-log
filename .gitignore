@@ -1,0 +1,7 @@
+.env
+.env.*
+supabase/.temp/
+supabase/.branches/
+supabase/cron.local.sql      # 填了 service_role 金鑰的版本，絕對不要 commit
+.DS_Store
+deno.lock

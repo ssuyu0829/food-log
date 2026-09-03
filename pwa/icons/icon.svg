@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" fill="#f4efe4"/>
+  <!-- 帳本橫線 -->
+  <g stroke="#ddd3c0" stroke-width="4">
+    <line x1="0" y1="112" x2="512" y2="112"/>
+    <line x1="0" y1="192" x2="512" y2="192"/>
+    <line x1="0" y1="272" x2="512" y2="272"/>
+    <line x1="0" y1="352" x2="512" y2="352"/>
+    <line x1="0" y1="432" x2="512" y2="432"/>
+  </g>
+  <!-- 朱紅印章 -->
+  <g transform="rotate(-5 256 256)">
+    <rect x="98" y="98" width="316" height="316" rx="26"
+          fill="none" stroke="#c0402b" stroke-width="24"/>
+    <!-- 碗 -->
+    <path d="M158 268 h196 a98 98 0 0 1 -196 0 z" fill="#c0402b"/>
+    <rect x="140" y="252" width="232" height="20" rx="10" fill="#c0402b"/>
+    <!-- 一杯手搖（吸管 + 杯身） -->
+    <circle cx="256" cy="186" r="26" fill="none" stroke="#c0402b" stroke-width="20"/>
+  </g>
+</svg>

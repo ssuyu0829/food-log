@@ -1,0 +1,15 @@
+project_id = "food-log"
+
+# 這兩支要讓外部（Telegram / 瀏覽器）直接打，不能要求 JWT
+[functions.telegram-webhook]
+verify_jwt = false
+
+[functions.report]
+verify_jwt = false
+
+# 這兩支只給排程呼叫，保留 JWT 驗證
+[functions.daily-summary]
+verify_jwt = true
+
+[functions.weekly-report]
+verify_jwt = true

@@ -18,7 +18,7 @@ insert into settings (key, value, note) values
   ('daily_kcal_target', '',            '每日熱量目標；空字串＝不設目標，只報數字不評價'),
   ('weekly_drink_limit','',            '每週手搖杯數上限；空字串＝不設'),
   ('tg_chat_id',        '',            'Bot 只回應這個 chat_id。設定前 Bot 會告訴你你的 id'),
-  ('pwa_url',           '',            '/app 指令回傳的網址')
+  ('pwa_url',           '',            '/app 指令回傳的網址。⚠️ 一定要連 ?t=<PWA_TOKEN> 一起填，只填網域會讓手機打開後卡在「還沒認證」，而唯一拿 token 的管道就是 /app，會繞成死結')
 on conflict (key) do nothing;
 
 -- ------------------------------------------------------------

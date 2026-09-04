@@ -3,5 +3,5 @@
 window.FOODLOG_CONFIG = {
   // Supabase → Project Settings → API → Project URL 的 xxxx 部分
   // 例：https://abcdefgh.supabase.co/functions/v1
-  API_BASE: "https://YOUR-PROJECT-REF.supabase.co/functions/v1",
+  API_BASE: "https://vhovesvqppxeucyibaok.supabase.co/functions/v1",
 };

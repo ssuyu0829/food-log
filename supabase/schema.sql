@@ -159,6 +159,19 @@ alter table report_token enable row level security;
 -- 不建任何 policy＝anon/authenticated 完全讀不到。
 -- service_role 會繞過 RLS，所以 Edge Function 仍然可以讀寫。
 
+-- ⚠️ 2026-09-04 實戰補上：RLS 擋的是「政策」，GRANT 擋的是「權限」，兩者是不同層。
+-- 若建專案時關掉了「Automatically expose new tables」，這些表不會被 GRANT 給任何
+-- Data API 角色，而 Edge Function 的 supabase-js 走的正是 Data API（PostgREST），
+-- 於是 service_role 會吃到 42501 permission denied，bot 整個不會動。
+-- 只授權 service_role，anon/authenticated 一律不給，安全性沒有放寬。
+grant usage on schema public to service_role;
+grant select, insert, update, delete on all tables in schema public to service_role;
+grant usage, select on all sequences in schema public to service_role;
+alter default privileges in schema public
+  grant select, insert, update, delete on tables to service_role;
+alter default privileges in schema public
+  grant usage, select on sequences to service_role;
+
 -- ------------------------------------------------------------
 -- 6. 照片儲存桶（private）
 -- ------------------------------------------------------------

@@ -15,5 +15,7 @@ export const GEMINI_API_KEY        = need("GEMINI_API_KEY");
 
 // 可選
 export const TELEGRAM_WEBHOOK_SECRET = opt("TELEGRAM_WEBHOOK_SECRET");
-export const GEMINI_MODEL            = opt("GEMINI_MODEL", "gemini-2.5-flash");
+// 用 -latest 別名：2026-09-04 踩過 gemini-2.5-flash 對新帳號停用、
+// bot 整個靜默失效的坑。別名會自動跟進，不會再因為模型下架而壞掉。
+export const GEMINI_MODEL            = opt("GEMINI_MODEL", "gemini-flash-latest");
 export const PHOTO_BUCKET            = "meal-photos";

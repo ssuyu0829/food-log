@@ -2,6 +2,9 @@
 .env.*
 supabase/.temp/
 supabase/.branches/
-supabase/cron.local.sql      # 填了 service_role 金鑰的版本，絕對不要 commit
+# 填了 service_role 金鑰的版本，絕對不要 commit
+# ⚠️ 2026-09-04：原本註解寫在同一行行尾，但 .gitignore 不支援行尾註解，
+# 整行被當成含空格與 # 的檔名 pattern，這條規則等於完全沒生效。
+supabase/cron.local.sql
 .DS_Store
 deno.lock

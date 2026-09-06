@@ -10,25 +10,41 @@ export interface MealRow {
 
 export const TZ = "Asia/Taipei";
 
-/** 台北當地某一天的 UTC 邊界 */
+/**
+ * 帳本的一天從凌晨 4 點開始，不是午夜。
+ *
+ * 2026-09-06 加入。起因：00:30 記的宵夜被算成隔天，本人得手動把整筆搬回去。
+ * 深夜吃東西是常態，午夜切日界線會固定把它切錯邊。
+ * ⚠️ 改這個值要把四支 function 全部重新部署，而且 pwa/app.js 裡有一份必須同步的複本。
+ */
+export const DAY_START_HOUR = 4;
+
+/** 帳本日 dateStr 的 UTC 邊界（該日 04:00 到隔日 04:00） */
 export function dayBounds(dateStr: string): [string, string] {
-  const start = new Date(`${dateStr}T00:00:00+08:00`);
+  const hh = String(DAY_START_HOUR).padStart(2, "0");
+  const start = new Date(`${dateStr}T${hh}:00:00+08:00`);
   const end = new Date(start); end.setDate(end.getDate() + 1);
   return [start.toISOString(), end.toISOString()];
 }
 
-/** 往前 n 天（含今天）的 UTC 邊界 */
+/** 這個時間點屬於哪一個帳本日（凌晨 4 點前算前一天） */
+export function logicalDate(d = new Date(), tz = TZ): string {
+  return localDate(new Date(d.getTime() - DAY_START_HOUR * 3600_000), tz);
+}
+
+/** 往前 n 個帳本日（含今天）的 UTC 邊界 */
 export function lastNDays(n: number): [string, string, string[]] {
-  const today = localDate(new Date(), TZ);
+  const today = logicalDate();
   const [, end] = dayBounds(today);
-  const start = new Date(`${today}T00:00:00+08:00`);
-  start.setDate(start.getDate() - (n - 1));
   const days: string[] = [];
+  const cursor = new Date(`${today}T12:00:00+08:00`); // 用正午當游標，不會被邊界誤差咬到
+  cursor.setDate(cursor.getDate() - (n - 1));
   for (let i = 0; i < n; i++) {
-    const d = new Date(start); d.setDate(d.getDate() + i);
-    days.push(localDate(d, TZ));
+    days.push(localDate(cursor, TZ));
+    cursor.setDate(cursor.getDate() + 1);
   }
-  return [start.toISOString(), end, days];
+  const [start] = dayBounds(days[0]);
+  return [start, end, days];
 }
 
 export async function mealsBetween(startISO: string, endISO: string): Promise<MealRow[]> {
@@ -61,11 +77,11 @@ export function totalsOf(rows: MealRow[]): Totals {
   return t;
 }
 
-/** 依台北日期分組 */
+/** 依帳本日分組（凌晨 4 點前算前一天） */
 export function groupByDay(rows: MealRow[]): Map<string, MealRow[]> {
   const m = new Map<string, MealRow[]>();
   for (const r of rows) {
-    const d = localDate(new Date(r.eaten_at), TZ);
+    const d = logicalDate(new Date(r.eaten_at), TZ);
     if (!m.has(d)) m.set(d, []);
     m.get(d)!.push(r);
   }

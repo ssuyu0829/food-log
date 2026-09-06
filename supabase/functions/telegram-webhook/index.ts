@@ -10,10 +10,8 @@ import {
 import { analyzeFood, type FoodAnalysis } from "../_shared/gemini.ts";
 import { lookupDrink, parseDrink } from "../_shared/drinks.ts";
 import { correctionButtons, daySummary, mealReply, weekReport } from "../_shared/format.ts";
-import { dayBounds, lastNDays, mealsBetween, totalsOf } from "../_shared/stats.ts";
-import { localDate } from "../_shared/db.ts";
+import { dayBounds, lastNDays, logicalDate, mealsBetween, totalsOf } from "../_shared/stats.ts";
 
-const TZ = "Asia/Taipei";
 
 Deno.serve(async (req) => {
   // 1. 驗證這真的是 Telegram 打來的
@@ -120,7 +118,7 @@ async function handleCommand(chatId: number, text: string) {
       ].join("\n"));
 
     case "/today": {
-      const [s, e] = dayBounds(localDate(new Date(), TZ));
+      const [s, e] = dayBounds(logicalDate());
       const rows = await mealsBetween(s, e);
       const target = Number(await getSetting("daily_kcal_target")) || null;
       return await sendMessage(chatId, daySummary(rows, target, "<b>今天</b>"));
@@ -159,8 +157,13 @@ async function handleCommand(chatId: number, text: string) {
     case "/app": {
       const url = await getSetting("pwa_url");
       return await sendMessage(chatId, url
-        ? `報表：${url}\n（用 Safari 開 → 分享 → 加入主畫面）`
-        : "PWA 還沒設定網址。等前端上線後，把網址填進 settings 表的 pwa_url。");
+        ? [
+            `報表：${url}`,
+            "",
+            "用 <b>Safari</b> 開 → 分享 → 加入主畫面。",
+            "⚠️ 網址結尾 <code>?t=…</code> 那段不要刪，主畫面圖示要靠它認人。",
+          ].join("\n")
+        : "PWA 還沒設定網址。等前端上線後，把<b>帶 ?t= 的完整網址</b>填進 settings 表的 pwa_url。");
     }
 
     default:
@@ -181,7 +184,7 @@ async function handlePhoto(chatId: number, msg: any, photo: { file_id: string },
   }
 
   // 照片存進 private bucket，PWA 之後用 signed URL 顯示
-  const day = localDate(new Date(), TZ);
+  const day = logicalDate();
   const ext = mime === "image/png" ? "png" : mime === "image/webp" ? "webp" : "jpg";
   const path = `${day}/${crypto.randomUUID()}.${ext}`;
   const { error: upErr } = await db.storage.from(PHOTO_BUCKET)
@@ -260,7 +263,7 @@ async function saveAndReply(
     })));
   }
 
-  const [s, e] = dayBounds(localDate(new Date(), TZ));
+  const [s, e] = dayBounds(logicalDate());
   const today = totalsOf(await mealsBetween(s, e));
   const target = Number(await getSetting("daily_kcal_target")) || null;
 
@@ -286,6 +289,22 @@ async function onCallback(cq: any) {
     return await answerCallback(cq.id, "刪掉了");
   }
 
+  // 補登：把整筆往前／往後移一天。在現有時間上加減，所以按幾次就移幾天，
+  // 也不會把使用者原本記的時刻弄丟。
+  if (kind === "day") {
+    const delta = Number(multStr);
+    if (!Number.isFinite(delta) || delta === 0) return await answerCallback(cq.id);
+
+    const { data: cur } = await db.from("meals").select("eaten_at").eq("id", mealId).single();
+    if (!cur) return await answerCallback(cq.id, "找不到這筆");
+
+    const moved = new Date(new Date(cur.eaten_at).getTime() + delta * 86_400_000).toISOString();
+    await db.from("meals").update({ eaten_at: moved }).eq("id", mealId);
+
+    await redraw(chatId, cq.message.message_id, mealId);
+    return await answerCallback(cq.id, `搬到 ${logicalDate(new Date(moved))}`);
+  }
+
   if (kind !== "m") return await answerCallback(cq.id);
 
   const mult = Number(multStr);
@@ -296,7 +315,7 @@ async function onCallback(cq: any) {
   const list = items ?? [];
   const sum = (k: string) => list.reduce((s: number, i: any) => s + Number(i[k] ?? 0), 0);
 
-  const { data: meal } = await db.from("meals")
+  const { error } = await db.from("meals")
     .update({
       portion_multiplier: mult,
       total_kcal: Math.round(sum("kcal") * mult),
@@ -305,17 +324,33 @@ async function onCallback(cq: any) {
       carb_g: Math.round(sum("carb_g") * mult),
       sugar_g: Math.round(sum("sugar_g") * mult * 10) / 10,
     })
-    .eq("id", mealId).select().single();
-  if (!meal) return await answerCallback(cq.id, "找不到這筆");
+    .eq("id", mealId);
+  if (error) throw error;
 
-  const [s, e] = dayBounds(localDate(new Date(), TZ));
-  const today = totalsOf(await mealsBetween(s, e));
-  const target = Number(await getSetting("daily_kcal_target")) || null;
+  const ok2 = await redraw(chatId, cq.message.message_id, mealId);
+  return await answerCallback(cq.id, ok2 ? `份量改成 ×${mult}` : "找不到這筆");
+}
 
-  const scaled = list.map((i: any) => ({
+/**
+ * 重畫一則記錄訊息（份量鍵與改日期鍵共用）。
+ * 一律從資料庫重讀，所以不管剛剛改的是份量還是日期，畫出來的都是當下的真實狀態。
+ */
+async function redraw(chatId: number, messageId: number, mealId: number): Promise<boolean> {
+  const { data: meal } = await db.from("meals").select("*").eq("id", mealId).single();
+  if (!meal) return false;
+
+  const { data: items } = await db.from("meal_items").select("*").eq("meal_id", mealId).order("ord");
+  const mult = Number(meal.portion_multiplier ?? 1);
+  const scaled = (items ?? []).map((i: any) => ({
     name: i.name, qty_desc: i.qty_desc, kcal: Number(i.kcal) * mult,
   }));
-  await editMessage(chatId, cq.message.message_id,
-    mealReply(meal, scaled, today, target), correctionButtons(mealId));
-  await answerCallback(cq.id, `份量改成 ×${mult}`);
+
+  // 累計看的是「這筆所屬的那一天」，不是今天——搬到 9/4 之後要顯示 9/4 的總量
+  const [s, e] = dayBounds(logicalDate(new Date(meal.eaten_at)));
+  const dayTotals = totalsOf(await mealsBetween(s, e));
+  const target = Number(await getSetting("daily_kcal_target")) || null;
+
+  await editMessage(chatId, messageId,
+    mealReply(meal, scaled, dayTotals, target), correctionButtons(mealId));
+  return true;
 }

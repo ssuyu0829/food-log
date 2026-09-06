@@ -35,6 +35,11 @@
 
   <section class="ledger-state" id="state">
     <p class="ledger-state__msg" id="state-msg">正在翻開帳本…</p>
+    <div class="ledger-state__auth" id="state-auth" hidden>
+      <input id="state-auth-input" type="text" inputmode="url" autocapitalize="off"
+             autocorrect="off" spellcheck="false" placeholder="貼上 /app 給的網址">
+      <button id="state-auth-go" type="button">存起來</button>
+    </div>
   </section>
 
   <section class="today" id="today" hidden>

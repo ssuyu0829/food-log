@@ -2,7 +2,6 @@
   "name": "飲食帳本",
   "short_name": "帳本",
   "description": "每天吃了什麼，一筆一筆記著",
-  "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",

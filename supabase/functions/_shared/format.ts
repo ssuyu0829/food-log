@@ -1,6 +1,6 @@
 // Telegram 訊息排版。原則：第一行就是結論，細節放下面。
 import { esc } from "./telegram.ts";
-import { type MealRow, type Totals, groupByDay, hhmm, totalsOf } from "./stats.ts";
+import { type MealRow, type Totals, groupByDay, hhmm, logicalDate, totalsOf } from "./stats.ts";
 
 const CONF_LABEL: Record<string, string> = {
   high: "把握度高", medium: "把握度中等", low: "把握度低，份量是猜的",
@@ -9,15 +9,21 @@ const CONF_LABEL: Record<string, string> = {
 /** 一筆記錄存好之後的回覆 */
 export function mealReply(
   meal: { id: number; title: string; total_kcal: number; sugar_g: number;
-          protein_g: number; fat_g: number; carb_g: number;
+          protein_g: number; fat_g: number; carb_g: number; eaten_at: string;
           confidence: string | null; estimate_note: string | null; portion_multiplier: number },
   items: { name: string; qty_desc: string; kcal: number }[],
   today: Totals,
   target: number | null,
 ): string {
   const L: string[] = [];
+  // 不是今天的就把日期標出來。按了「改到前一天」之後只有一閃而過的 toast，
+  // 沒有這行就看不出這筆到底搬去哪天了。
+  const day = logicalDate(new Date(meal.eaten_at));
+  const badge = day === logicalDate()
+    ? ""
+    : `📅 <b>${day.slice(5).replace("-", "/")} ${hhmm(meal.eaten_at)}</b>\n`;
   const mult = meal.portion_multiplier !== 1 ? `（份量 ×${meal.portion_multiplier}）` : "";
-  L.push(`<b>${esc(meal.title)}　${meal.total_kcal} kcal</b>${mult}`);
+  L.push(`${badge}<b>${esc(meal.title)}　${meal.total_kcal} kcal</b>${mult}`);
 
   if (items.length) {
     L.push("");
@@ -36,7 +42,9 @@ export function mealReply(
   if (bits.length) L.push(`<i>※ ${esc(bits.join("；"))}</i>`);
 
   L.push("");
-  L.push(`今日累計 <b>${today.kcal}</b> kcal` + (target ? `／目標 ${target}（剩 ${target - today.kcal}）` : "") +
+  // 這筆搬到別天之後，累計看的就是那一天，標題也要跟著改，否則會誤讀成今天的量
+  const label = badge ? `${day.slice(5).replace("-", "/")} 累計` : "今日累計";
+  L.push(`${label} <b>${today.kcal}</b> kcal` + (target ? `／目標 ${target}（剩 ${target - today.kcal}）` : "") +
     `　糖 ${today.sugar_g}g　手搖 ${today.drinkCount} 杯`);
   return L.join("\n");
 }
@@ -48,6 +56,12 @@ export function correctionButtons(mealId: number) {
       { text: "×1.5", callback_data: `m:${mealId}:1.5` },
       { text: "×2",   callback_data: `m:${mealId}:2` },
       { text: "還原", callback_data: `m:${mealId}:1` },
+    ],
+    // 補登：兩顆而不是一顆「改到昨天」。按兩下就退兩天，按過頭也推得回來，
+    // 而且完全不需要記狀態——每次都只是在現有時間上加減一天。
+    [
+      { text: "◀ 改到前一天", callback_data: `day:${mealId}:-1` },
+      { text: "改到後一天 ▶", callback_data: `day:${mealId}:1` },
     ],
     [{ text: "🗑 刪掉這筆", callback_data: `del:${mealId}` }],
   ];

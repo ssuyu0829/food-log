@@ -1,9 +1,9 @@
 // PWA 讀取用的唯一 API。用 ?t=<token> 認證。
 // 前端不碰 Supabase，也就拿不到任何金鑰。
 // 部署：supabase functions deploy report --no-verify-jwt
-import { db, getSetting, localDate } from "../_shared/db.ts";
+import { db, getSetting } from "../_shared/db.ts";
 import { PHOTO_BUCKET } from "../_shared/env.ts";
-import { groupByDay, lastNDays, mealsBetween, totalsOf, TZ } from "../_shared/stats.ts";
+import { groupByDay, lastNDays, logicalDate, mealsBetween, totalsOf } from "../_shared/stats.ts";
 
 const CORS = {
   "access-control-allow-origin": "*",
@@ -34,7 +34,7 @@ Deno.serve(async (req) => {
   }
 
   return json({
-    today: localDate(new Date(), TZ),
+    today: logicalDate(),
     target: Number(await getSetting("daily_kcal_target")) || null,
     drink_limit: Number(await getSetting("weekly_drink_limit")) || null,
     days: dayList.map((d) => ({ date: d, ...totalsOf(byDay.get(d) ?? []) })),

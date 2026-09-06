@@ -11,17 +11,26 @@
   const WD = ["日", "一", "二", "三", "四", "五", "六"];
 
   // ---------- token ----------
+  // ⚠️ 2026-09-06：這裡原本讀完 token 就把 ?t= 從網址擦掉，理由寫「圖示才不會一直帶著
+  // token」——方向是反的。「加到主畫面」抓的是當下那條網址，擦掉之後圖示就是沒 token 的版本；
+  // iOS 主畫面 App 又跟 Safari 用不同的 localStorage，看不到瀏覽器存的 token。
+  // 結果圖示永遠停在「還沒認證」，而唯一能拿 token 的 /app 只會在 Safari 開 → 死結。
+  // 現在反過來：網址永遠自帶 token，捷徑才會是能用的。
   const urlToken = new URLSearchParams(location.search).get("t");
-  if (urlToken) {
-    localStorage.setItem(LS_TOKEN, urlToken);
-    // 網址列擦乾淨，加到主畫面之後的圖示才不會一直帶著 token
-    history.replaceState(null, "", location.pathname);
-  }
+  if (urlToken) localStorage.setItem(LS_TOKEN, urlToken);
   const token = localStorage.getItem(LS_TOKEN);
+  if (token && !urlToken) history.replaceState(null, "", `?t=${encodeURIComponent(token)}`);
+
+  /** 從貼進來的東西取出 token：整條網址、只有 ?t=xxx、或裸 token 都吃 */
+  function extractToken(s) {
+    const v = String(s || "").trim();
+    return (v.match(/[?&]t=([^&#\s]+)/)?.[1] ?? v).trim();
+  }
 
   async function boot() {
     if (!token) {
-      return showState("這台裝置還沒認證。\n請用 Telegram 的 /app 拿到帶 ?t= 的網址，用那個網址打開一次。");
+      // 給貼上的入口，讓「沒 token」不再是死路——不依賴 iOS 的 localStorage 行為
+      return showState("這台裝置還沒認證。\n在 Telegram 打 /app，把整條網址貼到下面。", true);
     }
     if (!CFG.API_BASE || CFG.API_BASE.includes("YOUR-PROJECT-REF")) {
       return showState("config.js 裡的 API_BASE 還沒填。");
@@ -36,7 +45,7 @@
       });
       if (res.status === 403) {
         localStorage.removeItem(LS_TOKEN);
-        return showState("token 失效了。請用 Telegram 的 /app 重新拿一次網址。");
+        return showState("token 失效了。\n在 Telegram 打 /app 重新拿一次，貼到下面。", true);
       }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
@@ -57,11 +66,23 @@
     } catch { return null; }
   }
 
-  function showState(msg) {
+  function showState(msg, askToken = false) {
     $("state").hidden = false;
     $("state-msg").textContent = msg;
+    $("state-auth").hidden = !askToken;
     ["today", "chart", "entries"].forEach((id) => { $(id).hidden = true; });
   }
+
+  // 貼上 token：整條網址或裸 token 都收，存好之後用帶 token 的網址重新載入
+  $("state-auth-go").addEventListener("click", () => {
+    const t = extractToken($("state-auth-input").value);
+    if (!t) return;
+    localStorage.setItem(LS_TOKEN, t);
+    location.replace(`?t=${encodeURIComponent(t)}`);
+  });
+  $("state-auth-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") $("state-auth-go").click();
+  });
 
   function markStale(at) {
     $("stamp").textContent = `離線・上次同步 ${at ? fmtWhen(at) : "未知"}`;
@@ -230,9 +251,12 @@
 
   const fmtDateLabel = (d) =>
     `${d.replace(/-/g, ".")} 星期${WD[weekday(d)]}`;
+  // 帳本的一天從凌晨 4 點開始（跟後端 stats.ts 的 DAY_START_HOUR 必須一致）：
+  // 半夜吃的算前一天。不減這 4 小時的話，明細的日期標會跟上面的長條圖對不起來。
+  const DAY_START_HOUR = 4;
   const fmtDay = (iso) =>
     new Intl.DateTimeFormat("zh-TW", { timeZone: TZ, month: "2-digit", day: "2-digit", weekday: "short" })
-      .format(new Date(iso));
+      .format(new Date(new Date(iso).getTime() - DAY_START_HOUR * 3600e3));
   const fmtTime = (iso) =>
     new Intl.DateTimeFormat("zh-TW", { timeZone: TZ, hour: "2-digit", minute: "2-digit", hour12: false })
       .format(new Date(iso));

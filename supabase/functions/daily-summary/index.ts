@@ -1,15 +1,15 @@
 // 每晚推播當日總結。由 pg_cron 或 Supabase Scheduled Function 呼叫。
 // 部署：supabase functions deploy daily-summary
-import { getSetting, localDate } from "../_shared/db.ts";
+import { getSetting } from "../_shared/db.ts";
 import { sendMessage } from "../_shared/telegram.ts";
 import { daySummary } from "../_shared/format.ts";
-import { dayBounds, lastNDays, mealsBetween, totalsOf, TZ } from "../_shared/stats.ts";
+import { dayBounds, lastNDays, logicalDate, mealsBetween, totalsOf } from "../_shared/stats.ts";
 
 Deno.serve(async () => {
   const chatId = Number(await getSetting("tg_chat_id"));
   if (!chatId) return new Response("尚未綁定 tg_chat_id", { status: 200 });
 
-  const today = localDate(new Date(), TZ);
+  const today = logicalDate();
   const [s, e] = dayBounds(today);
   const rows = await mealsBetween(s, e);
   const target = Number(await getSetting("daily_kcal_target")) || null;

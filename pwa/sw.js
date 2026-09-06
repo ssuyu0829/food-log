@@ -1,6 +1,6 @@
 // ⚠️ 改版時務必把 VERSION 加一，否則舊快取會鎖住新版
 //    （multiply-dojo 就是在這裡卡過，這裡一律 network-first）
-const VERSION = "v1";
+const VERSION = "v2";
 const CACHE = `foodlog-${VERSION}`;
 const ASSETS = [
   "./", "./index.html", "./styles.css", "./app.js", "./config.js", "./manifest.json",

@@ -1,6 +1,6 @@
 // 手搖解析與熱量公式的測試。不需要任何金鑰或網路。
 // 跑法：deno test --allow-env supabase/functions/_shared/drinks_test.ts
-import { assertEquals } from "jsr:@std/assert@1";
+import { assert, assertEquals } from "jsr:@std/assert@1";
 import { computeNutrition, type DrinkRow, parseDrink } from "./drinks.ts";
 
 Deno.test("解析：完整格式", () => {
@@ -83,22 +83,25 @@ const 珍奶: DrinkRow = {
   base_kcal_m: 280, base_kcal_l: 385,
   sugar_g_full_m: 36, sugar_g_full_l: 50,
   base_sugar_g_m: 26, base_sugar_g_l: 35,
+  recipe: null,   // 這幾條測的是「沒有配方」的退路（網搜寫回來的列長這樣）
   source_type: "estimated", source_url: null,
 };
 
-Deno.test("熱量：大杯全糖珍奶 = 底 385 + 50g 糖 x 4", () => {
+// ⚠️ 以下四條測的是**沒有 recipe 時的退路**。2026-09-10 起 seed 的 53 筆都有配方，
+//    走的是下面「配方路徑」那一組；這一組保留下來是因為網搜 fallback 存回的列沒有配方。
+Deno.test("退路：大杯全糖珍奶 = 底 385 + 50g 糖 x 4", () => {
   const n = computeNutrition(珍奶, "L", "全糖");
   assertEquals(n.kcal, 585);
   assertEquals(n.sugar_g, 85);   // 珍珠自帶 35 + 糖水 50
 });
 
-Deno.test("熱量：無糖珍奶的糖不會是 0（珍珠本身就是糖）", () => {
+Deno.test("退路：無糖珍奶的糖不會是 0（珍珠本身就是糖）", () => {
   const n = computeNutrition(珍奶, "L", "無糖");
   assertEquals(n.kcal, 385);
   assertEquals(n.sugar_g, 35);
 });
 
-Deno.test("熱量：半糖剛好是糖水的一半", () => {
+Deno.test("退路：半糖剛好是糖水的一半", () => {
   const full = computeNutrition(珍奶, "M", "全糖");
   const half = computeNutrition(珍奶, "M", "半糖");
   const zero = computeNutrition(珍奶, "M", "無糖");
@@ -107,16 +110,17 @@ Deno.test("熱量：半糖剛好是糖水的一半", () => {
   assertEquals(half.sugar_g, 26 + 18);
 });
 
-Deno.test("熱量：有講但看不懂的甜度字串仍當全糖（寧可高估）", () => {
+Deno.test("退路：有講但看不懂的甜度字串仍當全糖（寧可高估）", () => {
   assertEquals(computeNutrition(珍奶, "M", "隨便").kcal, computeNutrition(珍奶, "M", "全糖").kcal);
 });
 
-Deno.test("常態路徑：無糖鮮奶茶", () => {
+Deno.test("退路：無糖鮮奶茶用扁平欄位的舊數字", () => {
   const 鮮奶茶: DrinkRow = {
     id: 2, brand: "通用", item: "鮮奶茶", aliases: ["鮮奶紅茶", "歐蕾"],
     base_kcal_m: 165, base_kcal_l: 230,
     sugar_g_full_m: 36, sugar_g_full_l: 50,
     base_sugar_g_m: 14, base_sugar_g_l: 20,
+    recipe: null,
     source_type: "estimated", source_url: null,
   };
   const p = parseDrink("鮮奶茶");
@@ -126,4 +130,54 @@ Deno.test("常態路徑：無糖鮮奶茶", () => {
 
   const m = computeNutrition(鮮奶茶, "M", "無糖");
   assertEquals(m.kcal, 165);     // 明講中杯時才會是中杯的數字
+});
+
+// ------------------------------------------------------------
+// 配方路徑（2026-09-10 起的常態）。冰塊只有這條路吃得到。
+// ------------------------------------------------------------
+const 鮮奶茶配方: DrinkRow = {
+  id: 3, brand: "通用", item: "鮮奶茶", aliases: ["鮮奶茶", "歐蕾"],
+  // 扁平欄位仍然在（給 PWA 與 report 用），但有 recipe 時不會被讀
+  base_kcal_m: 109, base_kcal_l: 153,
+  sugar_g_full_m: 37.5, sugar_g_full_l: 52.5,
+  base_sugar_g_m: 7.9, base_sugar_g_l: 11.1,
+  recipe: { milk_ratio: 0.45 },
+  source_type: "estimated", source_url: null,
+};
+
+Deno.test("配方：有 recipe 就走模型，不讀扁平欄位", () => {
+  const n = computeNutrition(鮮奶茶配方, "L", "無糖", "正常冰");
+  assert(n.kcal >= 150 && n.kcal <= 170, `kcal = ${n.kcal}`);
+  assert(n.protein_g > 5, "配方路徑要算得出蛋白質（退路只會給 0）");
+});
+
+Deno.test("配方：去冰要比正常冰高（退路完全吃不到冰塊）", () => {
+  const 正常 = computeNutrition(鮮奶茶配方, "L", "無糖", "正常冰").kcal;
+  const 去冰 = computeNutrition(鮮奶茶配方, "L", "無糖", "去冰").kcal;
+  assert(去冰 > 正常 * 1.2, `去冰 ${去冰} vs 正常冰 ${正常}`);
+});
+
+Deno.test("配方：無糖鮮奶茶的 added_sugar_g 是 0，但 sugar_g 不是", () => {
+  const n = computeNutrition(鮮奶茶配方, "L", "無糖");
+  assertEquals(n.added_sugar_g, 0);
+  assert((n.sugar_g ?? 0) > 0);
+});
+
+Deno.test("退路：沒有配方時五個新維度要是 null，不可以是 0", () => {
+  const n = computeNutrition(珍奶, "L", "全糖");
+  assertEquals(n.sodium_mg, null);
+  assertEquals(n.fiber_g, null);
+  assertEquals(n.added_sugar_g, null);
+});
+
+Deno.test("配方：手搖的蔬菜份數是「量過的 0」，不是 null", () => {
+  assertEquals(computeNutrition(鮮奶茶配方, "L", "無糖").veg_servings, 0);
+});
+
+Deno.test("parseDrink 認得的冰塊字串會一路傳到計算", () => {
+  const p = parseDrink("鮮奶茶 去冰");
+  assertEquals(p.ice, "去冰");
+  const 去冰 = computeNutrition(鮮奶茶配方, p.size, p.sweetness, p.ice).kcal;
+  const 預設 = computeNutrition(鮮奶茶配方, p.size, p.sweetness, null).kcal;
+  assert(去冰 > 預設);
 });

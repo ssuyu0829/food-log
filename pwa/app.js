@@ -116,6 +116,7 @@
     $("today-kcal").textContent = Math.round(today.kcal).toLocaleString();
     renderTarget(today, d.target);
     renderMacros(today);
+    renderTargets(today, d.targets);
 
     // 七日
     renderChart(week, d.today, d.target);
@@ -131,6 +132,9 @@
   const blankDay = (date) => ({
     date, kcal: 0, sugar_g: 0, protein_g: 0, fat_g: 0, carb_g: 0,
     drinkCount: 0, mealCount: 0, drinkKcal: 0,
+    // ⚠️ 這五個的空值是 null 不是 0。null = 沒量過（2026-09-10 之前的紀錄全是），
+    //    0 = 量過答案是零。畫成 0 會讓人以為那天真的沒吃到鈉。
+    sodium_mg: null, fiber_g: null, sat_fat_g: null, added_sugar_g: null, veg_servings: null,
   });
 
   function renderTarget(today, target) {
@@ -166,6 +170,39 @@
     ].map(([k, v, u]) => `<div><dt>${k}</dt><dd>${v}<small>${u}</small></dd></div>`).join("");
   }
 
+  // 2026-09-10：健康指標。
+  // ⚠️ 門檻由後端的 report function 給（stats.ts 的 TARGETS），前端不要另外寫死一份，
+  //    不然兩邊會漂移——這個專案已經在 DAY_START_HOUR 上吃過一次同樣的虧。
+  function renderTargets(today, targets) {
+    const el = $("targets");
+    if (!targets) { el.hidden = true; return; }
+    const rows = [
+      ["鈉", today.sodium_mg, targets.sodium_mg, "mg", true],
+      ["添加糖", today.added_sugar_g, targets.added_sugar_g, "g", true],
+      ["飽和脂肪", today.sat_fat_g, targets.sat_fat_g, "g", true],
+      ["膳食纖維", today.fiber_g, targets.fiber_g, "g", false],
+      ["蔬菜", today.veg_servings, targets.veg_servings, " 份", false],
+    ].filter(([, v]) => v !== null && v !== undefined);   // 沒量過的整項不畫
+
+    if (!rows.length) { el.hidden = true; return; }
+    el.hidden = false;
+    el.innerHTML = rows.map(([k, v, t, u, over]) => {
+      const bad = over ? v > t : v < t;
+      const pct = Math.min(100, (v / t) * 100);
+      return `<li class="tgt${bad ? " is-bad" : ""}">
+        <span class="tgt__k">${k}</span>
+        <span class="tgt__track"><span class="tgt__bar" style="width:${pct}%"></span></span>
+        <span class="tgt__v">${round1(v)}${u} / ${t}${u}</span>
+      </li>`;
+    }).join("");
+
+    // 修掉 2026-09-10 之前最誤導的口徑：「糖」是總糖，WHO 的門檻講的是游離糖
+    if (today.added_sugar_g !== null && today.sugar_g > today.added_sugar_g) {
+      const nat = round1(today.sugar_g - today.added_sugar_g);
+      el.innerHTML += `<li class="tgt__note">總糖 ${round1(today.sugar_g)}g 裡有 ${nat}g 是乳糖／果糖，不算進添加糖</li>`;
+    }
+  }
+
   function renderChart(week, todayStr, target) {
     const max = Math.max(1, ...week.map((x) => x.kcal), target || 0);
     $("chart-rows").innerHTML = week.map((x) => {
@@ -192,6 +229,8 @@
     const logged = week.filter((x) => x.kcal > 0).length;
     const avg = logged ? Math.round(week.reduce((s, x) => s + x.kcal, 0) / logged) : 0;
     const sugar = round1(week.reduce((s, x) => s + x.sugar_g, 0));
+    // 平均值一定要標「只算了幾天」。9/7 只記 3 筆、9/8 只記 2 筆時，
+    // 那兩天的數字反而最高——不標的話會被讀成「那天吃很多」。
     $("chart-foot").textContent = logged
       ? `有記錄的 ${logged} 天平均 ${avg} kcal・七日總糖 ${sugar}g（約 ${Math.round(sugar / 4)} 顆方糖）`
       : "近七日沒有任何記錄。";

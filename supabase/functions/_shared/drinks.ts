@@ -3,7 +3,12 @@
 // 「50嵐 四季春 微糖 大」→ { brand:50嵐, item:四季春茶, size:M/L, sweetness:微糖 }
 // ============================================================
 import { db } from "./db.ts";
-import { searchDrinkCalories } from "./gemini.ts";
+import { type ExtraNutrients, NO_EXTRAS, searchDrinkCalories } from "./gemini.ts";
+import { compose, type Recipe, roundNutrients, SWEET_FACTOR } from "./drink_model.ts";
+
+// SWEET_FACTOR 的定義搬到 drink_model.ts（那支不 import db，測試不用 env）。
+// 這裡再導出一次，讓既有的 import 路徑不用改。
+export { SWEET_FACTOR };
 
 export const BRAND_ALIASES: Record<string, string[]> = {
   "50嵐":      ["50嵐", "50岚", "五十嵐", "五十岚", "50lan"],
@@ -117,23 +122,58 @@ export interface DrinkRow {
   base_kcal_m: number; base_kcal_l: number;
   sugar_g_full_m: number; sugar_g_full_l: number;
   base_sugar_g_m: number; base_sugar_g_l: number;
+  /**
+   * 2026-09-10 加的配方。有配方就走 drink_model.compose()（冰塊才算得進去），
+   * 沒有就退回上面六個扁平欄位——網搜 fallback 寫回來的 'searched' 列沒有配方，
+   * 這條退路不能拿掉。
+   */
+  recipe: Recipe | null;
   source_type: string; source_url: string | null;
 }
 
-export const SWEET_FACTOR: Record<string, number> = {
-  "無糖": 0, "微糖": 0.15, "二分糖": 0.2, "三分糖": 0.3,
-  "半糖": 0.5, "少糖": 0.7, "八分糖": 0.8, "全糖": 1.0,
-};
+export interface DrinkNutrition extends ExtraNutrients {
+  kcal: number; sugar_g: number;
+  protein_g: number; fat_g: number; carb_g: number;
+}
 
-export function computeNutrition(row: DrinkRow, size: "M" | "L", sweetness: string) {
+/**
+ * 算一杯的營養。
+ *
+ * 有 recipe 走配方模型（2026-09-10 起的 53 筆 seed 都有），
+ * 沒有就退回扁平欄位（網搜 fallback 存回來的列）。
+ *
+ * ⚠️ 只有配方路徑吃得到 ice。扁平路徑的數字固定是「正常冰」，
+ *    因為那六個欄位本來就是算好的一個數字，沒有拆出液體量。
+ */
+export function computeNutrition(
+  row: DrinkRow,
+  size: "M" | "L",
+  sweetness: string,
+  ice: string | null = null,
+): DrinkNutrition {
+  if (row.recipe) {
+    const n = roundNutrients(compose(row.recipe, size, sweetness, ice));
+    return {
+      kcal: n.kcal, sugar_g: n.sugar_g,
+      protein_g: n.protein_g, fat_g: n.fat_g, carb_g: n.carb_g,
+      sodium_mg: n.sodium_mg, fiber_g: n.fiber_g, sat_fat_g: n.sat_fat_g,
+      added_sugar_g: n.added_sugar_g, veg_servings: 0,  // 手搖沒有蔬菜，這是量過的 0
+    };
+  }
+
+  // --- 退路：沒有配方的舊列／網搜列 ---
   const f = SWEET_FACTOR[sweetness] ?? 1.0;
   // 與 schema.sql 的 drink_nutrition 一致：只有明確是 M 才用中杯，其餘一律大杯
   const baseKcal  = size === "M" ? row.base_kcal_m : row.base_kcal_l;
   const sugarFull = size === "M" ? row.sugar_g_full_m : row.sugar_g_full_l;
   const baseSugar = size === "M" ? row.base_sugar_g_m : row.base_sugar_g_l;
+  const sugar = Math.round((Number(baseSugar) + Number(sugarFull) * f) * 10) / 10;
   return {
     kcal: Math.round(Number(baseKcal) + Number(sugarFull) * f * 4),
-    sugar_g: Math.round((Number(baseSugar) + Number(sugarFull) * f) * 10) / 10,
+    sugar_g: sugar,
+    protein_g: 0, fat_g: 0, carb_g: Math.round(sugar),
+    // 沒有配方就沒量過這幾項，一律 null——填 0 會讓週報以為「這杯鈉是 0」
+    ...NO_EXTRAS,
   };
 }
 
@@ -162,10 +202,8 @@ function bestMatch(rows: DrinkRow[], itemText: string): DrinkRow | null {
   return bestScore >= 24 ? best : null;
 }
 
-export interface DrinkResult {
+export interface DrinkResult extends DrinkNutrition {
   row: DrinkRow | null;
-  kcal: number;
-  sugar_g: number;
   title: string;
   sourceType: "official" | "searched" | "estimated" | "generic";
   sourceUrl: string | null;
@@ -205,6 +243,7 @@ export async function lookupDrink(p: ParsedDrink): Promise<DrinkResult | null> {
       await cacheSearched(p, found);
       return {
         row: null, kcal: found.kcal, sugar_g: found.sugar_g, title: label,
+        protein_g: 0, fat_g: 0, carb_g: Math.round(found.sugar_g), ...NO_EXTRAS,
         sourceType: "searched", sourceUrl: found.source_url,
         note: "第一次遇到這杯，剛上網查到並存起來了，下次會直接秒回",
       };
@@ -215,9 +254,11 @@ export async function lookupDrink(p: ParsedDrink): Promise<DrinkResult | null> {
 }
 
 function build(row: DrinkRow, p: ParsedDrink, label: string, note: string): DrinkResult {
-  const n = computeNutrition(row, p.size, p.sweetness);
+  // p.ice 原本解析完就被丟掉。去冰／熱飲的液體比正常冰多 30%，
+  // 熱量差得出來卻沒進計算，是 2026-09-10 之前的一個純漏接。
+  const n = computeNutrition(row, p.size, p.sweetness, p.ice);
   return {
-    row, kcal: n.kcal, sugar_g: n.sugar_g, title: label,
+    ...n, row, title: label,
     sourceType: row.source_type as DrinkResult["sourceType"],
     sourceUrl: row.source_url, note,
   };

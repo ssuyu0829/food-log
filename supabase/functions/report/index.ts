@@ -3,7 +3,9 @@
 // 部署：supabase functions deploy report --no-verify-jwt
 import { db, getSetting } from "../_shared/db.ts";
 import { PHOTO_BUCKET } from "../_shared/env.ts";
-import { groupByDay, lastNDays, logicalDate, mealsBetween, totalsOf } from "../_shared/stats.ts";
+import {
+  completenessOf, groupByDay, lastNDays, logicalDate, mealsBetween, TARGETS, totalsOf,
+} from "../_shared/stats.ts";
 
 const CORS = {
   "access-control-allow-origin": "*",
@@ -37,11 +39,17 @@ Deno.serve(async (req) => {
     today: logicalDate(),
     target: Number(await getSetting("daily_kcal_target")) || null,
     drink_limit: Number(await getSetting("weekly_drink_limit")) || null,
+    // 2026-09-10 起 totalsOf 自帶 sodium_mg / fiber_g / sat_fat_g / added_sugar_g /
+    // veg_servings。**沒量過的是 null，前端不要 ?? 0**——那會讓舊資料顯示成「鈉 0」。
+    targets: TARGETS,
+    completeness: completenessOf(rows, dayList),
     days: dayList.map((d) => ({ date: d, ...totalsOf(byDay.get(d) ?? []) })),
     meals: rows.slice().reverse().map((r) => ({
       id: r.id, eaten_at: r.eaten_at, title: r.title,
       kcal: Number(r.total_kcal ?? 0), sugar_g: Number(r.sugar_g ?? 0),
       protein_g: Number(r.protein_g ?? 0), fat_g: Number(r.fat_g ?? 0), carb_g: Number(r.carb_g ?? 0),
+      sodium_mg: r.sodium_mg, fiber_g: r.fiber_g, sat_fat_g: r.sat_fat_g,
+      added_sugar_g: r.added_sugar_g, veg_servings: r.veg_servings,
       is_drink: r.is_drink, confidence: r.confidence, note: r.estimate_note,
       photo: r.photo_path ? signed.get(r.photo_path) ?? null : null,
     })),

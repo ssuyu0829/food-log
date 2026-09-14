@@ -52,6 +52,12 @@ create table if not exists drinks (
 
 create index if not exists drinks_brand_idx on drinks (brand);
 
+-- ⚠️ 2026-09-10 追加。原本 drinks 只存六個「算好的」扁平欄位，結果同一杯的
+--    kcal 與糖各自隱含不同的鮮奶量（鮮奶茶 L：222 kcal ⇒ 352ml，20g 乳糖 ⇒ 425ml，差 20%）。
+--    改成存配方，兩者從同一個 milk_ratio 推出來就不可能再打架。
+--    扁平欄位仍由 supabase/build_drinks.ts 產生並寫回，所以下游全部不用改。
+alter table drinks add column if not exists recipe jsonb;
+
 -- 甜度字串 → 係數。
 --   沒講（null／空字串）＝無糖，因為使用者的常態就是無糖。
 --   有講但看不懂的字串＝全糖（寧可高估，不要低估）。
@@ -135,6 +141,54 @@ create table if not exists meal_items (
 
 create index if not exists meal_items_meal_idx on meal_items (meal_id);
 
+-- ⚠️ 2026-09-09 追加的欄位。`create table if not exists` 對「已經存在的表」什麼都不做，
+-- 所以新欄位一定要用 alter 才會同時服務「從零重建」與「線上這一份」。
+--
+-- meal_items.excluded：拍到別人的食物時把那一項挑掉。軟排除、不刪列，所以按回來就回來了。
+--   總熱量一律從「未排除的細項」重算（見 _shared/meal.ts 的 recalcMeal）。
+alter table meal_items add column if not exists excluded boolean not null default false;
+
+-- meals.tg_reply_message_id：bot 那則「記好了」訊息的 id。
+--   使用者回覆它並打一個數字＝自訂份量倍率，靠這一欄對回是哪一筆。
+alter table meals add column if not exists tg_reply_message_id bigint;
+create index if not exists meals_tg_reply_idx on meals (tg_reply_message_id)
+  where deleted_at is null;
+
+-- ⚠️ 2026-09-10 追加的五個營養維度。**允許 NULL，不給 default 0**：
+--    NULL = 沒量過（9/10 之前的紀錄全部是這種）、0 = 量過答案是零。
+--    報表要分得出這兩者，不要 coalesce(...,0) 就當數字用——
+--    那會讓舊資料看起來「鈉是 0」，是最容易誤導自己的一種錯。
+--
+-- ⚠️ sugar_g 的語意沒有改，仍然是**總糖**（含乳糖與水果的果糖）。
+--    added_sugar_g 才是 WHO 的「游離糖」，<50g/天 的門檻要對這一欄。
+alter table meals add column if not exists sodium_mg     numeric;
+alter table meals add column if not exists fiber_g       numeric;
+alter table meals add column if not exists sat_fat_g     numeric;
+alter table meals add column if not exists added_sugar_g numeric;
+alter table meals add column if not exists veg_servings  numeric;
+
+-- meal_items 也要，否則「✂️ 挑掉某一項」時鈉與蔬菜份數扣不掉
+alter table meal_items add column if not exists sodium_mg     numeric;
+alter table meal_items add column if not exists fiber_g       numeric;
+alter table meal_items add column if not exists sat_fat_g     numeric;
+alter table meal_items add column if not exists added_sugar_g numeric;
+alter table meal_items add column if not exists veg_servings  numeric;
+
+-- ------------------------------------------------------------
+-- 3b. 體重
+--     放在 food-log 而不是 time-control（那邊才是「身體事件」）的理由：
+--     體重是熱量估計**唯一的外部校準錨**，要跟攝取量在同一個系統裡
+--     才自動對得起來。這是 2026-09-10 對 personal/NOW.md 分工界線的一條修訂。
+-- ------------------------------------------------------------
+create table if not exists weights (
+  id          bigserial primary key,
+  measured_at timestamptz not null default now(),
+  kg          numeric not null check (kg > 20 and kg < 300),
+  note        text,
+  created_at  timestamptz not null default now()
+);
+create index if not exists weights_measured_idx on weights (measured_at desc);
+
 -- ------------------------------------------------------------
 -- 4. PWA 讀取用的 token
 -- ------------------------------------------------------------
@@ -156,6 +210,7 @@ alter table drinks       enable row level security;
 alter table meals        enable row level security;
 alter table meal_items   enable row level security;
 alter table report_token enable row level security;
+alter table weights      enable row level security;
 -- 不建任何 policy＝anon/authenticated 完全讀不到。
 -- service_role 會繞過 RLS，所以 Edge Function 仍然可以讀寫。
 

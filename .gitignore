@@ -8,3 +8,8 @@ supabase/.branches/
 supabase/cron.local.sql
 .DS_Store
 deno.lock
+
+# 個人工作筆記，不進公開 repo
+NOW.md
+CLAUDE.md
+HANDOFF.md

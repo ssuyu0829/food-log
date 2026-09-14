@@ -37,3 +37,41 @@ Deno.test("lastNDays 天數與端點", () => {
     assertEquals(days[i], prev.toISOString().slice(0, 10));
   }
 });
+
+// ------------------------------------------------------------
+// 2026-09-10 部署後實測抓到的誤報：
+// 當天中午只記了 1 筆就被標成「疑似漏記」——但那天還沒過完，晚餐當然還沒記。
+// ------------------------------------------------------------
+import { completenessOf, type MealRow } from "./stats.ts";
+
+const meal = (iso: string): MealRow => ({
+  id: 1, eaten_at: iso, title: "x", total_kcal: 500, sugar_g: 0, protein_g: 0,
+  fat_g: 0, carb_g: 0, is_drink: false, source: "text", confidence: null,
+  photo_path: null, estimate_note: null, sodium_mg: null, fiber_g: null,
+  sat_fat_g: null, added_sugar_g: null, veg_servings: null,
+});
+
+const DAYS = ["2026-09-09", "2026-09-10"];
+// 09-09 兩筆相隔一分鐘（真的漏記）、09-10 中午一筆（今天，還沒過完）
+const ROWS = [
+  meal("2026-09-09T04:00:00Z"), meal("2026-09-09T04:01:00Z"),
+  meal("2026-09-10T04:00:00Z"),
+];
+
+Deno.test("完整度：進行中的今天不判斷、也不算進分母", () => {
+  const c = completenessOf(ROWS, DAYS, "2026-09-10");
+  assertEquals(c.thinDays.map((d) => d.date), ["2026-09-09"]);  // 今天不在裡面
+  assertEquals(c.totalDays, 1);   // 分母只有 09-09
+  assertEquals(c.loggedDays, 1);
+});
+
+Deno.test("完整度：今天完全沒記不算漏記", () => {
+  const c = completenessOf(ROWS.slice(0, 2), DAYS, "2026-09-10");
+  assertEquals(c.emptyDays, []);
+});
+
+Deno.test("完整度：today 傳 null 就全部照判（跑歷史區間時用）", () => {
+  const c = completenessOf(ROWS, DAYS, null);
+  assertEquals(c.thinDays.map((d) => d.date), ["2026-09-09", "2026-09-10"]);
+  assertEquals(c.totalDays, 2);
+});

@@ -1,5 +1,7 @@
 # 飲食帳本（food-log）
 
+[![CI](https://github.com/ssuyu0829/food-log/actions/workflows/ci.yml/badge.svg)](https://github.com/ssuyu0829/food-log/actions/workflows/ci.yml)
+
 用 Telegram 記錄每天吃的東西，AI 估熱量，手機主畫面上的 PWA 看趨勢。
 重點在**看得到自己的飲食趨勢**，特別是手搖飲。
 

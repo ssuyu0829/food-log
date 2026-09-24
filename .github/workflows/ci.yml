@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Run tests
+        working-directory: supabase/functions/_shared
+        env:
+          # env.ts 在載入時就會檢查這些變數，所以測試要給假值
+          SUPABASE_URL: http://localhost
+          SUPABASE_SERVICE_ROLE_KEY: test
+          TELEGRAM_BOT_TOKEN: test
+          TELEGRAM_WEBHOOK_SECRET: test
+          GEMINI_API_KEY: test
+          REPORT_TOKEN: test
+          TELEGRAM_CHAT_ID: "1"
+        run: deno test --allow-all

@@ -19,6 +19,16 @@ Telegram（拍照／打字）
 
 全部落在免費額度：Supabase free、Gemini free tier、Telegram、GitHub Pages。
 
+## 設計與驗證重點
+
+- **讓估算內部一致**：手搖飲不再各自儲存熱量與糖量，而是從同一份配方參數推導；這修掉了同一杯鮮奶茶的兩個欄位隱含奶量相差約 20% 的問題。
+- **不把相關性說成校準結果**：體重可幫忙反推能量收支，但無法分開 AI 高估、漏記與個人 TDEE 差異，因此資料不足時只報方向，不輸出看似精確的「高估百分比」。
+- **把模型輸出當成不可信輸入**：Gemini 使用結構化 schema，解析後再檢查欄位關係（例如添加糖不能高於總糖）；來源則區分 `official`、`searched` 與 `estimated`。
+
+## 開發方式
+
+我負責定義問題與功能範圍、資料模型、估算口徑及驗證條件；多數實作程式碼由 Claude（AI coding assistant）產生，再由我審查、測試與修正。這個 repo 保留 CI 與測試，讓上述規則可以被重複驗證。
+
 ## 目錄
 
 | 路徑 | 是什麼 |
@@ -38,8 +48,13 @@ Telegram（拍照／打字）
 # 本機看前端（假資料）
 deno run --allow-net --allow-read dev/mock-server.ts   # → localhost:8788/?t=demo
 
-# 測試
-deno test --allow-env supabase/functions/_shared/drinks_test.ts
+# 跑完整測試（與 CI 相同；測試不會連線到這些假服務）
+cd supabase/functions/_shared
+SUPABASE_URL=http://localhost \
+SUPABASE_SERVICE_ROLE_KEY=test \
+TELEGRAM_BOT_TOKEN=test TELEGRAM_WEBHOOK_SECRET=test \
+GEMINI_API_KEY=test REPORT_TOKEN=test TELEGRAM_CHAT_ID=1 \
+deno test --allow-all
 
 # 部署
 supabase functions deploy telegram-webhook

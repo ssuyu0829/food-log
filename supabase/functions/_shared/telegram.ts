@@ -48,6 +48,21 @@ export async function downloadFile(file_id: string): Promise<{ bytes: Uint8Array
   return { bytes, mime };
 }
 
+/** 傳一個檔案（/export 用）。sendDocument 要走 multipart，不能像其他方法一樣丟 JSON。 */
+export async function sendDocument(
+  chat_id: number, filename: string, content: string | Uint8Array, caption?: string,
+  mime = "text/csv",
+) {
+  const fd = new FormData();
+  fd.append("chat_id", String(chat_id));
+  fd.append("document", new Blob([content as BlobPart], { type: mime }), filename);
+  if (caption) { fd.append("caption", caption); fd.append("parse_mode", "HTML"); }
+  const res = await fetch(`${API}/sendDocument`, { method: "POST", body: fd });
+  const json = await res.json();
+  if (!json.ok) console.error("telegram sendDocument 失敗:", JSON.stringify(json));
+  return json.result;
+}
+
 export function esc(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }

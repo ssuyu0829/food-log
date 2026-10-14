@@ -3,8 +3,9 @@
 // 部署：supabase functions deploy report --no-verify-jwt
 import { db, getSetting } from "../_shared/db.ts";
 import { PHOTO_BUCKET } from "../_shared/env.ts";
+import { EXPORT_MAX_DAYS, exportFilename, mealsCsv, weightsCsv } from "../_shared/export.ts";
 import {
-  completenessOf, groupByDay, lastNDays, logicalDate, mealsBetween, TARGETS, totalsOf,
+  completenessOf, groupByDay, lastNDays, logicalDate, mealsBetween, proteinTargetG, TARGETS, totalsOf,
 } from "../_shared/stats.ts";
 
 const CORS = {
@@ -18,10 +19,25 @@ Deno.serve(async (req) => {
 
   const url = new URL(req.url);
   const token = url.searchParams.get("t") ?? "";
-  const days = Math.min(90, Math.max(1, Number(url.searchParams.get("days") ?? 14)));
+  const isCsv = url.searchParams.get("format") === "csv";
+  // 網頁報表最多 90 天（要簽照片網址，太多會慢）；CSV 匯出放寬到 EXPORT_MAX_DAYS
+  const days = Math.min(isCsv ? EXPORT_MAX_DAYS : 90, Math.max(1, Number(url.searchParams.get("days") ?? 14)));
 
   const { data: t } = await db.from("report_token").select("token").eq("token", token).maybeSingle();
   if (!t) return json({ error: "無效的 token" }, 403);
+
+  // ?format=csv[&kind=meals|weights][&days=N]：下載 CSV，PWA 頁尾的「下載 CSV」走這裡
+  if (isCsv) {
+    const kind = url.searchParams.get("kind") === "weights" ? "weights" : "meals";
+    const { csv } = kind === "weights" ? await weightsCsv(days) : await mealsCsv(days);
+    return new Response(csv, {
+      headers: {
+        ...CORS,
+        "content-type": "text/csv; charset=utf-8",
+        "content-disposition": `attachment; filename="${exportFilename(kind)}"`,
+      },
+    });
+  }
 
   const [s, e, dayList] = lastNDays(days);
   const rows = await mealsBetween(s, e);
@@ -41,7 +57,8 @@ Deno.serve(async (req) => {
     drink_limit: Number(await getSetting("weekly_drink_limit")) || null,
     // 2026-09-10 起 totalsOf 自帶 sodium_mg / fiber_g / sat_fat_g / added_sugar_g /
     // veg_servings。**沒量過的是 null，前端不要 ?? 0**——那會讓舊資料顯示成「鈉 0」。
-    targets: TARGETS,
+    // protein_g 是算好的「克數目標」（最新體重 × 倍率），沒體重就是 null，前端整列不畫。
+    targets: { ...TARGETS, protein_g: await proteinTargetG() },
     completeness: completenessOf(rows, dayList),
     days: dayList.map((d) => ({ date: d, ...totalsOf(byDay.get(d) ?? []) })),
     meals: rows.slice().reverse().map((r) => ({

@@ -129,8 +129,22 @@ export function itemButtons(
   return rows;
 }
 
+/**
+ * /again 的清單。一排一顆，按下去就以現在時間複製那一筆。
+ * 標題截到 24 字：Telegram 按鈕太長會被切掉，而且前 24 字已經足夠認出是哪一餐。
+ */
+export function againButtons(meals: { id: number; title: string | null; total_kcal: number | null }[]) {
+  return meals.map((m) => {
+    const t = m.title ?? "未命名";
+    const name = t.length > 24 ? `${t.slice(0, 24)}…` : t;
+    return [{ text: `${name}　${Math.round(Number(m.total_kcal ?? 0))} kcal`, callback_data: `again:${m.id}` }];
+  });
+}
+
 /** /today 與每晚推播 */
-export function daySummary(rows: MealRow[], target: number | null, heading: string): string {
+export function daySummary(
+  rows: MealRow[], target: number | null, heading: string, proteinTarget: number | null = null,
+): string {
   const t = totalsOf(rows);
   const L: string[] = [];
 
@@ -153,7 +167,7 @@ export function daySummary(rows: MealRow[], target: number | null, heading: stri
 
   L.push("");
   L.push(`糖 ${t.sugar_g}g　蛋白 ${Math.round(t.protein_g)}g　脂肪 ${Math.round(t.fat_g)}g　碳水 ${Math.round(t.carb_g)}g`);
-  L.push(...targetLines(t));
+  L.push(...targetLines(t, proteinTarget));
   if (t.drinkCount > 0) {
     L.push(`手搖 <b>${t.drinkCount} 杯</b>，佔今天 ${Math.round(t.drinkKcal / Math.max(t.kcal, 1) * 100)}% 的熱量`);
   }
@@ -164,7 +178,7 @@ export function daySummary(rows: MealRow[], target: number | null, heading: stri
  * 一天的四個健康指標。**沒量過的整項不印**（見 stats.ts 的 metTargets）。
  * 用「✅／⚠️ + 實際值 / 門檻」而不是只給數字——分心時掃一眼就知道要不要動。
  */
-function targetLines(t: Totals): string[] {
+function targetLines(t: Totals, proteinTarget: number | null = null): string[] {
   const out: string[] = [];
   const row = (icon: string, label: string, v: number | null, target: number, unit: string, over: boolean) => {
     if (v === null) return;
@@ -172,6 +186,8 @@ function targetLines(t: Totals): string[] {
     out.push(`${bad ? "⚠️" : "✅"} ${label} ${v}${unit}${over ? " / 上限 " : " / 目標 "}${target}${unit}`);
     void icon;
   };
+  // 蛋白質排第一：它是唯一「要吃夠」而且跟體重掛鉤的。沒體重就整行不印。
+  if (proteinTarget !== null) row("", "蛋白質", Math.round(t.protein_g), proteinTarget, "g", false);
   row("", "鈉", t.sodium_mg, TARGETS.sodium_mg, "mg", true);
   row("", "添加糖", t.added_sugar_g, TARGETS.added_sugar_g, "g", true);
   row("", "飽和脂肪", t.sat_fat_g, TARGETS.sat_fat_g, "g", true);
@@ -195,7 +211,9 @@ function targetLines(t: Totals): string[] {
  * 但這兩天的「平均熱量」卻是全週最高——那不是吃比較多，是只記了大餐。
  * 平均值放第一行會讓人直接讀錯，所以先講這週的數字能不能信。
  */
-export function weekReport(rows: MealRow[], days: string[], prev?: MealRow[]): string {
+export function weekReport(
+  rows: MealRow[], days: string[], prev?: MealRow[], proteinTarget: number | null = null,
+): string {
   const t = totalsOf(rows);
   const byDay = groupByDay(rows);
   const c = completenessOf(rows, days);
@@ -229,7 +247,7 @@ export function weekReport(rows: MealRow[], days: string[], prev?: MealRow[]): s
   }
 
   // --- 健康指標：講「幾天達標」而不是總量 ---
-  const targetSummary = weekTargets(days, byDay);
+  const targetSummary = weekTargets(days, byDay, proteinTarget);
   if (targetSummary.length) {
     L.push("");
     L.push(...targetSummary);
@@ -292,9 +310,11 @@ function completenessHeadline(c: Completeness): string {
  * ⚠️ 分母是「有量到這一項的天數」，不是 7——
  * 2026-09-10 之前的記錄這幾欄全是 null，混進去會算出假的達標率。
  */
-function weekTargets(days: string[], byDay: Map<string, MealRow[]>): string[] {
+function weekTargets(
+  days: string[], byDay: Map<string, MealRow[]>, proteinTarget: number | null = null,
+): string[] {
   const labels: Record<string, string> = {
-    sodium_mg: "鈉不超標", added_sugar_g: "添加糖不超標", sat_fat_g: "飽和脂肪不超標",
+    protein_g: "蛋白質達標", sodium_mg: "鈉不超標", added_sugar_g: "添加糖不超標", sat_fat_g: "飽和脂肪不超標",
     fiber_g: "纖維達標", veg_servings: "蔬菜 3 份",
   };
   const hit: Record<string, number> = {};
@@ -302,7 +322,7 @@ function weekTargets(days: string[], byDay: Map<string, MealRow[]>): string[] {
   for (const d of days) {
     const rs = byDay.get(d);
     if (!rs?.length) continue;
-    const m = metTargets(totalsOf(rs));
+    const m = metTargets(totalsOf(rs), proteinTarget);
     for (const [k, v] of Object.entries(m)) {
       if (v === null) continue;
       seen[k] = (seen[k] ?? 0) + 1;

@@ -75,3 +75,29 @@ Deno.test("完整度：today 傳 null 就全部照判（跑歷史區間時用）
   assertEquals(c.thinDays.map((d) => d.date), ["2026-09-09", "2026-09-10"]);
   assertEquals(c.totalDays, 2);
 });
+
+// ------------------------------------------------------------
+// 蛋白質目標：唯一跟體重掛鉤的門檻
+// ------------------------------------------------------------
+import { metTargets, proteinTarget, TARGETS, totalsOf } from "./stats.ts";
+
+Deno.test("蛋白質目標：體重 × 倍率，四捨五入到整數", () => {
+  assertEquals(proteinTarget(62.5), 75);          // 62.5 × 1.2
+  assertEquals(proteinTarget(62.5, 1.6), 100);
+  assertEquals(TARGETS.protein_per_kg, 1.2);
+});
+
+Deno.test("蛋白質目標：沒體重或倍率不合理就是 null，不是 0", () => {
+  assertEquals(proteinTarget(null), null);
+  assertEquals(proteinTarget(0), null);
+  assertEquals(proteinTarget(62.5, 0), null);
+  assertEquals(proteinTarget(62.5, NaN), null);
+});
+
+Deno.test("蛋白質達標：沒目標整項 null；有目標照比", () => {
+  const rows = [{ ...meal("2026-09-10T04:00:00Z"), protein_g: 80 }];
+  const t = totalsOf(rows);
+  assertEquals(metTargets(t).protein_g, null);
+  assertEquals(metTargets(t, 75).protein_g, true);
+  assertEquals(metTargets(t, 90).protein_g, false);
+});

@@ -57,3 +57,46 @@ export async function recalcMeal(
 
   return { meal: updated, items };
 }
+
+/**
+ * /again「再來一份」：把一筆記錄連同細項原樣複製成新的一筆，時間設現在。
+ *
+ * 直接複製 meals 上算好的欄位，不重算——那些欄位已經反映了倍率與挑掉的細項，
+ * 所以「上次吃 0.7 份、挑掉別人那盤」再來一次還是同樣的數字。
+ * 細項的 excluded 與 ord 一起帶過去，之後再按倍率鍵仍然算得對。
+ * 照片沿用同一個 storage 路徑，不另存一份。
+ */
+const COPY_COLS = [
+  "source", "title", "photo_path",
+  "total_kcal", "protein_g", "fat_g", "carb_g", "sugar_g",
+  "sodium_mg", "fiber_g", "sat_fat_g", "added_sugar_g", "veg_servings",
+  "confidence", "estimate_note", "model", "portion_multiplier", "is_drink", "drink_id",
+] as const;
+
+export async function duplicateMeal(
+  srcId: number,
+  extra: { tg_chat_id: number; tg_message_id: number },
+): Promise<Record<string, any> | null> {
+  const { data: src } = await db.from("meals").select("*").eq("id", srcId).maybeSingle();
+  if (!src) return null;
+
+  const row: Record<string, unknown> = {};
+  for (const k of COPY_COLS) row[k] = src[k] ?? null;
+
+  const { data: meal, error } = await db.from("meals").insert({
+    ...row,
+    raw_text: `再來一份：${src.title ?? ""}`,
+    eaten_at: new Date().toISOString(),
+    ...extra,
+  }).select().single();
+  if (error) throw error;
+
+  const items = await getItems(srcId);
+  if (items.length) {
+    const { error: e2 } = await db.from("meal_items").insert(
+      items.map(({ id: _id, meal_id: _m, ...rest }) => ({ ...rest, meal_id: meal.id })),
+    );
+    if (e2) throw e2;
+  }
+  return meal;
+}

@@ -28,15 +28,3 @@ export function localDate(d = new Date(), tz = "Asia/Taipei"): string {
     timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
   }).format(d);
 }
-
-/** 回傳 [起, 迄) 的 UTC ISO 字串，涵蓋 tz 當地的 n 天 */
-export function localDayRange(daysBack: number, tz = "Asia/Taipei"): [string, string] {
-  const now = new Date();
-  const todayLocal = localDate(now, tz);
-  // 以當地午夜為界。用 offset 反推 UTC：先假設 +08:00（台北固定不換日光節約）
-  const start = new Date(`${todayLocal}T00:00:00+08:00`);
-  start.setDate(start.getDate() - (daysBack - 1));
-  const end = new Date(`${todayLocal}T00:00:00+08:00`);
-  end.setDate(end.getDate() + 1);
-  return [start.toISOString(), end.toISOString()];
-}

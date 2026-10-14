@@ -42,12 +42,24 @@ function mockReport(days: number) {
       kcal += k; sugar += s; p += Math.round(k * 0.05); f += Math.round(k * 0.035); c += Math.round(k * 0.12);
       if (isDrink) { dc++; dk += k; } else mc++;
     }
+    // 2026-09-10 加的五個維度。前幾天給 null（模擬舊資料「沒量過」），後面給數字。
+    const measured = di >= 3;
     return { date, kcal, sugar_g: Math.round(sugar * 10) / 10, protein_g: p, fat_g: f, carb_g: c,
-             drinkCount: dc, mealCount: mc, drinkKcal: dk };
+             drinkCount: dc, mealCount: mc, drinkKcal: dk,
+             sodium_mg: measured ? 1200 + Math.round(rnd() * 1600) : null,
+             fiber_g: measured ? Math.round(rnd() * 30) : null,
+             sat_fat_g: measured ? Math.round(rnd() * 30) : null,
+             added_sugar_g: measured ? Math.round(sugar * 0.7) : null,
+             veg_servings: measured ? Math.round(rnd() * 4) : null };
   });
 
   meals.sort((a: any, b: any) => b.eaten_at.localeCompare(a.eaten_at));
-  return { today, target: 1800, drink_limit: 3, days: dayStats, meals };
+  return {
+    today, target: 1800, drink_limit: 3, days: dayStats, meals,
+    // 跟 report function 回的一樣：門檻由後端給，protein_g 是算好的目標（有體重才有）
+    targets: { sodium_mg: 2000, fiber_g: 25, veg_servings: 3, added_sugar_g: 50,
+               added_sugar_ideal_g: 25, sat_fat_g: 22, protein_per_kg: 1.2, protein_g: 75 },
+  };
 }
 
 Deno.serve({ port: PORT }, async (req) => {

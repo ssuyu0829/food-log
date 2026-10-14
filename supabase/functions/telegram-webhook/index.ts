@@ -5,18 +5,21 @@
 import { PHOTO_BUCKET, TELEGRAM_WEBHOOK_SECRET } from "../_shared/env.ts";
 import { db, getSetting, setSetting } from "../_shared/db.ts";
 import {
-  answerCallback, downloadFile, editMessage, esc, sendChatAction, sendMessage,
+  answerCallback, downloadFile, editMessage, esc, sendChatAction, sendDocument, sendMessage,
 } from "../_shared/telegram.ts";
+import { EXPORT_MAX_DAYS, exportFilename, mealsCsv, weightsCsv } from "../_shared/export.ts";
 import { analyzeFood, type FoodAnalysis } from "../_shared/gemini.ts";
 import { lookupDrink, parseDrink } from "../_shared/drinks.ts";
 import {
-  calibReport, correctionButtons, daySummary, itemButtons, mealReply, weekReport, weightReport,
+  againButtons, calibReport, correctionButtons, daySummary, itemButtons, mealReply, weekReport,
+  weightReport,
 } from "../_shared/format.ts";
 import {
-  dayBounds, groupByDay, lastNDays, logicalDate, mealsBetween, totalsOf,
+  dayBounds, groupByDay, lastNDays, logicalDate, mealsBetween, proteinTargetG, TARGETS, totalsOf,
 } from "../_shared/stats.ts";
 import { calibrate, parseWeight, type WeighIn } from "../_shared/weight.ts";
-import { getItems, recalcMeal } from "../_shared/meal.ts";
+import { duplicateMeal, getItems, recalcMeal } from "../_shared/meal.ts";
+import { AGAIN_LIMIT, recentDistinct } from "../_shared/again.ts";
 import { parsePortion } from "../_shared/portion.ts";
 
 
@@ -63,6 +66,7 @@ async function authorize(chatId: number, text: string): Promise<boolean> {
         "",
         "<b>指令</b>",
         "/today 今天吃了什麼　/week 本週回顧",
+        "/again 再來一份：從最近吃過的挑一個直接記，不用重拍",
         "/target 1800 設每日熱量目標（/target 0 取消）",
         "/undo 刪掉最後一筆　/help 說明",
         "",
@@ -134,14 +138,17 @@ async function handleCommand(chatId: number, text: string) {
         "",
         "<b>指令</b>",
         "/today 今天　/week 本週",
+        "/again 再來一份（<code>/again 鮮奶茶</code> 可以用關鍵字找）",
         "/target 1800 設每日目標（/target 0 取消）",
         "/limit 3 設每週手搖上限（只出現在統計裡，不會當場念你）",
         "/undo 刪掉最後一筆　/app 拿報表網址",
+        "/export 把全部記錄匯成 CSV 傳給你（<code>/export 30</code> 只要最近 30 天）",
         "",
         "<b>體重（2026-09-10 加）</b>",
         "• 打 <code>體重 62.5</code>（也認 <code>62.5kg</code>、<code>62.5 公斤</code>）",
         "  補登：<code>9/8 體重 62.3</code>。<b>裸數字不算</b>，那是份量倍率。",
         "/weight 看曲線　/calib 由體重反推熱量校準　/tdee 設參考值",
+        "/protein 1.6 設蛋白質倍率（g/kg，預設 1.2）。有體重才會出現蛋白質目標。",
         "<i>體重是唯一能從外部驗證熱量估得準不準的東西。</i>",
         "",
         "<b>記完之後還能改</b>",
@@ -154,7 +161,7 @@ async function handleCommand(chatId: number, text: string) {
       const [s, e] = dayBounds(logicalDate());
       const rows = await mealsBetween(s, e);
       const target = Number(await getSetting("daily_kcal_target")) || null;
-      return await sendMessage(chatId, daySummary(rows, target, "<b>今天</b>"));
+      return await sendMessage(chatId, daySummary(rows, target, "<b>今天</b>", await proteinTargetG()));
     }
 
     case "/week": {
@@ -162,7 +169,24 @@ async function handleCommand(chatId: number, text: string) {
       const rows = await mealsBetween(s, e);
       const prevStart = new Date(new Date(s).getTime() - 7 * 86400000).toISOString();
       const prev = await mealsBetween(prevStart, s);
-      return await sendMessage(chatId, weekReport(rows, days, prev));
+      return await sendMessage(chatId, weekReport(rows, days, prev, await proteinTargetG()));
+    }
+
+    case "/again":
+    case "/a": {
+      const kw = args.join(" ");
+      // 撈最近 60 筆再去重：重複餐很多，8 個不重複的標題通常要翻好幾十筆才湊得到
+      const { data } = await db.from("meals").select("id,title,total_kcal")
+        .is("deleted_at", null).order("created_at", { ascending: false }).limit(60);
+      const list = recentDistinct(data ?? [], AGAIN_LIMIT, kw);
+      if (!list.length) {
+        return await sendMessage(chatId, kw
+          ? `最近 60 筆裡沒有標題含「${esc(kw)}」的。`
+          : "還沒有任何記錄可以重複。先記一筆吧。");
+      }
+      return await sendMessage(chatId,
+        "<b>再來一份</b>　點一下就以現在時間記一筆同樣的（份量與挑掉的細項都照上次）：",
+        againButtons(list));
     }
 
     case "/target": {
@@ -220,6 +244,43 @@ async function handleCommand(chatId: number, text: string) {
       return await sendMessage(chatId, v === "0"
         ? "已取消參考 TDEE，/calib 之後只報反推值。"
         : `參考 TDEE 設成 ${v} kcal/天。/calib 會拿它對照。`);
+    }
+
+    case "/protein": {
+      // 蛋白質目標＝最新體重 × 倍率。這裡只設倍率，體重走「體重 62.5」那條路。
+      const v = args[0] ?? "";
+      if (!v) {
+        const t = await proteinTargetG();
+        const perKg = Number(await getSetting("protein_per_kg")) || TARGETS.protein_per_kg;
+        return await sendMessage(chatId, t === null
+          ? `還沒有體重記錄，算不出蛋白質目標。先打 <code>體重 62.5</code>。`
+          : `目前蛋白質目標 <b>${t} g/天</b>（最新體重 × ${perKg} g/kg）。\n用 <code>/protein 1.6</code> 改倍率，<code>/protein 0</code> 回預設 ${TARGETS.protein_per_kg}。`);
+      }
+      if (!/^\d+(\.\d+)?$/.test(v) || Number(v) > 4) {
+        return await sendMessage(chatId, "用法：<code>/protein 1.6</code>（每公斤體重幾克，0 回預設）");
+      }
+      await setSetting("protein_per_kg", Number(v) === 0 ? "" : v);
+      const t = await proteinTargetG();
+      return await sendMessage(chatId, Number(v) === 0
+        ? `倍率回到預設 ${TARGETS.protein_per_kg} g/kg。` + (t !== null ? `目標 ${t} g/天。` : "")
+        : `倍率設成 ${v} g/kg。` + (t !== null ? `目標 <b>${t} g/天</b>。` : "還沒有體重記錄，記了之後就會算。"));
+    }
+
+    case "/export": {
+      // 沒給天數＝全部（上限十年）。CSV 直接當檔案傳，手機上存到「檔案」或丟進試算表都方便。
+      const v = args[0] ?? "";
+      const days = /^\d+$/.test(v) && Number(v) > 0 ? Math.min(EXPORT_MAX_DAYS, Number(v)) : EXPORT_MAX_DAYS;
+      const label = days === EXPORT_MAX_DAYS ? "全部" : `最近 ${days} 天`;
+      await sendChatAction(chatId, "upload_document");
+
+      const meals = await mealsCsv(days);
+      if (!meals.count) return await sendMessage(chatId, `${label}沒有任何記錄。`);
+      await sendDocument(chatId, exportFilename("meals"), meals.csv,
+        `飲食記錄 <b>${meals.count}</b> 筆（${label}）。Excel 直接開；空格＝沒量過，不是 0。`);
+
+      const w = await weightsCsv(days);
+      if (w.count) await sendDocument(chatId, exportFilename("weights"), w.csv, `體重 ${w.count} 筆（${label}）`);
+      return;
     }
 
     case "/app": {
@@ -435,6 +496,21 @@ async function onCallback(cq: any) {
     return await answerCallback(cq.id, "刪掉了");
   }
 
+  // 再來一份：複製那筆成新的一筆，然後像平常記完一樣回一則帶修正按鈕的訊息
+  if (kind === "again") {
+    const meal = await duplicateMeal(mealId, { tg_chat_id: chatId, tg_message_id: cq.message.message_id });
+    if (!meal) return await answerCallback(cq.id, "找不到這筆");
+
+    const r = await renderMeal(meal.id);
+    const sent = r ? await sendMessage(chatId, r.text, r.buttons) : null;
+    if (sent?.message_id) {
+      await db.from("meals").update({ tg_reply_message_id: sent.message_id }).eq("id", meal.id);
+    }
+    // 清單那則改成「已記」，免得手滑再按一次變兩筆。要再記別的就再打 /again。
+    await editMessage(chatId, cq.message.message_id, `✅ 已再記一筆：${esc(meal.title ?? "")}`);
+    return await answerCallback(cq.id, "記好了");
+  }
+
   // 補登：把整筆往前／往後移一天。在現有時間上加減，所以按幾次就移幾天，
   // 也不會把使用者原本記的時刻弄丟。
   if (kind === "day") {
@@ -495,8 +571,18 @@ async function onCallback(cq: any) {
 async function redraw(
   chatId: number, messageId: number, mealId: number, mode: "normal" | "items" = "normal",
 ): Promise<boolean> {
+  const r = await renderMeal(mealId, mode);
+  if (!r) return false;
+  await editMessage(chatId, messageId, r.text, r.buttons);
+  return true;
+}
+
+/** 把一筆記錄畫成訊息本文＋鍵盤。redraw（改既有訊息）與 /again（發新訊息）共用。 */
+async function renderMeal(
+  mealId: number, mode: "normal" | "items" = "normal",
+): Promise<{ text: string; buttons: ReturnType<typeof correctionButtons> } | null> {
   const { data: meal } = await db.from("meals").select("*").eq("id", mealId).single();
-  if (!meal) return false;
+  if (!meal) return null;
 
   const items = await getItems(mealId);
   const mult = Number(meal.portion_multiplier ?? 1);
@@ -510,11 +596,12 @@ async function redraw(
   const dayTotals = totalsOf(await mealsBetween(s, e));
   const target = Number(await getSetting("daily_kcal_target")) || null;
 
-  await editMessage(chatId, messageId, mealReply(meal, scaled, dayTotals, target),
-    mode === "items"
+  return {
+    text: mealReply(meal, scaled, dayTotals, target),
+    buttons: mode === "items"
       ? itemButtons(mealId, items.map((i) => ({
           id: i.id, name: i.name, kcal: Number(i.kcal ?? 0) * mult, excluded: i.excluded,
         })))
-      : correctionButtons(mealId, items.length));
-  return true;
+      : correctionButtons(mealId, items.length),
+  };
 }

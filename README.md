@@ -7,6 +7,12 @@
 
 **第一次設定 → 看 [`docs/設定說明.md`](docs/設定說明.md)**
 
+想自己部署一份的話，先知道三件事：
+
+- **一個部署＝一個人。** Bot 只綁一個 Telegram 帳號、PWA 只發一個 token。要給第二個人用就再部署一份。
+- `pwa/config.js` 裡的 Supabase 網址**要換成你自己的**，設定說明步驟 7 會講。
+- 授權是 MIT，見 [`LICENSE`](LICENSE)。
+
 ```
 Telegram（拍照／打字）
   └─ webhook ─▶ Supabase Edge Function
@@ -33,8 +39,10 @@ Telegram（拍照／打字）
 
 | 路徑 | 是什麼 |
 |---|---|
-| `supabase/schema.sql` | 資料表。貼進 SQL Editor 執行 |
-| `supabase/seed_drinks.sql` | 手搖初始熱量表（**全部是推估值**，見檔頭聲明） |
+| `supabase/schema.sql` | 資料表。**新裝只要跑這份＋下一份 seed**，可重複執行 |
+| `supabase/seed_drinks.sql` | 手搖初始熱量表（**全部是推估值**，見檔頭聲明）。由 `build_drinks.ts` 產生，不要手改 |
+| `supabase/alter_2026-09-09_*.sql`<br>`supabase/alter_2026-09-10_*.sql` | **升級用，新裝不要跑**。給 2026-09-10 之前就建好的資料庫補欄位；`schema.sql` 已包含同樣的內容 |
+| `supabase/fix_grants.sql` | 救援用。Edge Function 吃到 `42501 permission denied` 時跑 |
 | `supabase/cron.sql` | 排程樣板。填了金鑰的版本不要 commit |
 | `supabase/functions/_shared/gemini.ts` | **辨識引擎的唯一抽換點** |
 | `supabase/functions/_shared/drinks.ts` | 手搖文字解析與熱量公式 |

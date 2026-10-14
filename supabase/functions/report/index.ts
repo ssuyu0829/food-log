@@ -3,6 +3,7 @@
 // 部署：supabase functions deploy report --no-verify-jwt
 import { db, getSetting } from "../_shared/db.ts";
 import { PHOTO_BUCKET } from "../_shared/env.ts";
+import { EXPORT_MAX_DAYS, exportFilename, mealsCsv, weightsCsv } from "../_shared/export.ts";
 import {
   completenessOf, groupByDay, lastNDays, logicalDate, mealsBetween, proteinTargetG, TARGETS, totalsOf,
 } from "../_shared/stats.ts";
@@ -18,10 +19,25 @@ Deno.serve(async (req) => {
 
   const url = new URL(req.url);
   const token = url.searchParams.get("t") ?? "";
-  const days = Math.min(90, Math.max(1, Number(url.searchParams.get("days") ?? 14)));
+  const isCsv = url.searchParams.get("format") === "csv";
+  // 網頁報表最多 90 天（要簽照片網址，太多會慢）；CSV 匯出放寬到 EXPORT_MAX_DAYS
+  const days = Math.min(isCsv ? EXPORT_MAX_DAYS : 90, Math.max(1, Number(url.searchParams.get("days") ?? 14)));
 
   const { data: t } = await db.from("report_token").select("token").eq("token", token).maybeSingle();
   if (!t) return json({ error: "無效的 token" }, 403);
+
+  // ?format=csv[&kind=meals|weights][&days=N]：下載 CSV，PWA 頁尾的「下載 CSV」走這裡
+  if (isCsv) {
+    const kind = url.searchParams.get("kind") === "weights" ? "weights" : "meals";
+    const { csv } = kind === "weights" ? await weightsCsv(days) : await mealsCsv(days);
+    return new Response(csv, {
+      headers: {
+        ...CORS,
+        "content-type": "text/csv; charset=utf-8",
+        "content-disposition": `attachment; filename="${exportFilename(kind)}"`,
+      },
+    });
+  }
 
   const [s, e, dayList] = lastNDays(days);
   const rows = await mealsBetween(s, e);

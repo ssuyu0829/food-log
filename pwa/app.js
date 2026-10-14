@@ -124,6 +124,13 @@
     // 明細
     renderEntries(d.meals);
 
+    // 匯出：report 的 csv 模式，token 沿用。沒 API_BASE 的離線快照就不給連結。
+    if (CFG.API_BASE && token) {
+      const a = $("csv-link");
+      a.href = `${CFG.API_BASE}/report?t=${encodeURIComponent(token)}&format=csv&days=3650`;
+      a.hidden = false;
+    }
+
     $("stamp").textContent = isCache
       ? `離線・上次同步 ${d.__at ? fmtWhen(d.__at) : "未知"}`
       : `同步於 ${fmtWhen(Date.now())}`;

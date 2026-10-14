@@ -5,8 +5,9 @@
 import { PHOTO_BUCKET, TELEGRAM_WEBHOOK_SECRET } from "../_shared/env.ts";
 import { db, getSetting, setSetting } from "../_shared/db.ts";
 import {
-  answerCallback, downloadFile, editMessage, esc, sendChatAction, sendMessage,
+  answerCallback, downloadFile, editMessage, esc, sendChatAction, sendDocument, sendMessage,
 } from "../_shared/telegram.ts";
+import { EXPORT_MAX_DAYS, exportFilename, mealsCsv, weightsCsv } from "../_shared/export.ts";
 import { analyzeFood, type FoodAnalysis } from "../_shared/gemini.ts";
 import { lookupDrink, parseDrink } from "../_shared/drinks.ts";
 import {
@@ -141,6 +142,7 @@ async function handleCommand(chatId: number, text: string) {
         "/target 1800 設每日目標（/target 0 取消）",
         "/limit 3 設每週手搖上限（只出現在統計裡，不會當場念你）",
         "/undo 刪掉最後一筆　/app 拿報表網址",
+        "/export 把全部記錄匯成 CSV 傳給你（<code>/export 30</code> 只要最近 30 天）",
         "",
         "<b>體重（2026-09-10 加）</b>",
         "• 打 <code>體重 62.5</code>（也認 <code>62.5kg</code>、<code>62.5 公斤</code>）",
@@ -262,6 +264,23 @@ async function handleCommand(chatId: number, text: string) {
       return await sendMessage(chatId, Number(v) === 0
         ? `倍率回到預設 ${TARGETS.protein_per_kg} g/kg。` + (t !== null ? `目標 ${t} g/天。` : "")
         : `倍率設成 ${v} g/kg。` + (t !== null ? `目標 <b>${t} g/天</b>。` : "還沒有體重記錄，記了之後就會算。"));
+    }
+
+    case "/export": {
+      // 沒給天數＝全部（上限十年）。CSV 直接當檔案傳，手機上存到「檔案」或丟進試算表都方便。
+      const v = args[0] ?? "";
+      const days = /^\d+$/.test(v) && Number(v) > 0 ? Math.min(EXPORT_MAX_DAYS, Number(v)) : EXPORT_MAX_DAYS;
+      const label = days === EXPORT_MAX_DAYS ? "全部" : `最近 ${days} 天`;
+      await sendChatAction(chatId, "upload_document");
+
+      const meals = await mealsCsv(days);
+      if (!meals.count) return await sendMessage(chatId, `${label}沒有任何記錄。`);
+      await sendDocument(chatId, exportFilename("meals"), meals.csv,
+        `飲食記錄 <b>${meals.count}</b> 筆（${label}）。Excel 直接開；空格＝沒量過，不是 0。`);
+
+      const w = await weightsCsv(days);
+      if (w.count) await sendDocument(chatId, exportFilename("weights"), w.csv, `體重 ${w.count} 筆（${label}）`);
+      return;
     }
 
     case "/app": {

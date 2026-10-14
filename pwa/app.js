@@ -176,7 +176,11 @@
   function renderTargets(today, targets) {
     const el = $("targets");
     if (!targets) { el.hidden = true; return; }
+    // 蛋白質：目標要有體重才算得出來（targets.protein_g 為 null 就不畫）。
+    // today.protein_g 永遠是數字不是 null，所以沒記錄的那天要自己擋，否則會畫成 0 / 74。
+    const hasRecords = (today.mealCount + today.drinkCount) > 0;
     const rows = [
+      ["蛋白質", targets.protein_g != null && hasRecords ? today.protein_g : null, targets.protein_g, "g", false],
       ["鈉", today.sodium_mg, targets.sodium_mg, "mg", true],
       ["添加糖", today.added_sugar_g, targets.added_sugar_g, "g", true],
       ["飽和脂肪", today.sat_fat_g, targets.sat_fat_g, "g", true],

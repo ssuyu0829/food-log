@@ -4,7 +4,7 @@
 import { db, getSetting } from "../_shared/db.ts";
 import { PHOTO_BUCKET } from "../_shared/env.ts";
 import {
-  completenessOf, groupByDay, lastNDays, logicalDate, mealsBetween, TARGETS, totalsOf,
+  completenessOf, groupByDay, lastNDays, logicalDate, mealsBetween, proteinTargetG, TARGETS, totalsOf,
 } from "../_shared/stats.ts";
 
 const CORS = {
@@ -41,7 +41,8 @@ Deno.serve(async (req) => {
     drink_limit: Number(await getSetting("weekly_drink_limit")) || null,
     // 2026-09-10 起 totalsOf 自帶 sodium_mg / fiber_g / sat_fat_g / added_sugar_g /
     // veg_servings。**沒量過的是 null，前端不要 ?? 0**——那會讓舊資料顯示成「鈉 0」。
-    targets: TARGETS,
+    // protein_g 是算好的「克數目標」（最新體重 × 倍率），沒體重就是 null，前端整列不畫。
+    targets: { ...TARGETS, protein_g: await proteinTargetG() },
     completeness: completenessOf(rows, dayList),
     days: dayList.map((d) => ({ date: d, ...totalsOf(byDay.get(d) ?? []) })),
     meals: rows.slice().reverse().map((r) => ({

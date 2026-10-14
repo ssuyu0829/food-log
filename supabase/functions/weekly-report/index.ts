@@ -3,7 +3,7 @@
 import { getSetting } from "../_shared/db.ts";
 import { sendMessage } from "../_shared/telegram.ts";
 import { weekReport } from "../_shared/format.ts";
-import { lastNDays, mealsBetween } from "../_shared/stats.ts";
+import { lastNDays, mealsBetween, proteinTargetG } from "../_shared/stats.ts";
 
 Deno.serve(async () => {
   const chatId = Number(await getSetting("tg_chat_id"));
@@ -15,7 +15,7 @@ Deno.serve(async () => {
   const prev = await mealsBetween(prevStart, s);
 
   const limit = Number(await getSetting("weekly_drink_limit")) || null;
-  const body = weekReport(rows, days, prev);
+  const body = weekReport(rows, days, prev, await proteinTargetG());
   const tail = limit ? `\n\n手搖上限 ${limit} 杯／週。` : "";
 
   await sendMessage(chatId, body + tail);

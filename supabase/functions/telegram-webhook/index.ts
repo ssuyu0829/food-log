@@ -13,7 +13,7 @@ import {
   calibReport, correctionButtons, daySummary, itemButtons, mealReply, weekReport, weightReport,
 } from "../_shared/format.ts";
 import {
-  dayBounds, groupByDay, lastNDays, logicalDate, mealsBetween, totalsOf,
+  dayBounds, groupByDay, lastNDays, logicalDate, mealsBetween, proteinTargetG, TARGETS, totalsOf,
 } from "../_shared/stats.ts";
 import { calibrate, parseWeight, type WeighIn } from "../_shared/weight.ts";
 import { getItems, recalcMeal } from "../_shared/meal.ts";
@@ -142,6 +142,7 @@ async function handleCommand(chatId: number, text: string) {
         "• 打 <code>體重 62.5</code>（也認 <code>62.5kg</code>、<code>62.5 公斤</code>）",
         "  補登：<code>9/8 體重 62.3</code>。<b>裸數字不算</b>，那是份量倍率。",
         "/weight 看曲線　/calib 由體重反推熱量校準　/tdee 設參考值",
+        "/protein 1.6 設蛋白質倍率（g/kg，預設 1.2）。有體重才會出現蛋白質目標。",
         "<i>體重是唯一能從外部驗證熱量估得準不準的東西。</i>",
         "",
         "<b>記完之後還能改</b>",
@@ -154,7 +155,7 @@ async function handleCommand(chatId: number, text: string) {
       const [s, e] = dayBounds(logicalDate());
       const rows = await mealsBetween(s, e);
       const target = Number(await getSetting("daily_kcal_target")) || null;
-      return await sendMessage(chatId, daySummary(rows, target, "<b>今天</b>"));
+      return await sendMessage(chatId, daySummary(rows, target, "<b>今天</b>", await proteinTargetG()));
     }
 
     case "/week": {
@@ -162,7 +163,7 @@ async function handleCommand(chatId: number, text: string) {
       const rows = await mealsBetween(s, e);
       const prevStart = new Date(new Date(s).getTime() - 7 * 86400000).toISOString();
       const prev = await mealsBetween(prevStart, s);
-      return await sendMessage(chatId, weekReport(rows, days, prev));
+      return await sendMessage(chatId, weekReport(rows, days, prev, await proteinTargetG()));
     }
 
     case "/target": {
@@ -220,6 +221,26 @@ async function handleCommand(chatId: number, text: string) {
       return await sendMessage(chatId, v === "0"
         ? "已取消參考 TDEE，/calib 之後只報反推值。"
         : `參考 TDEE 設成 ${v} kcal/天。/calib 會拿它對照。`);
+    }
+
+    case "/protein": {
+      // 蛋白質目標＝最新體重 × 倍率。這裡只設倍率，體重走「體重 62.5」那條路。
+      const v = args[0] ?? "";
+      if (!v) {
+        const t = await proteinTargetG();
+        const perKg = Number(await getSetting("protein_per_kg")) || TARGETS.protein_per_kg;
+        return await sendMessage(chatId, t === null
+          ? `還沒有體重記錄，算不出蛋白質目標。先打 <code>體重 62.5</code>。`
+          : `目前蛋白質目標 <b>${t} g/天</b>（最新體重 × ${perKg} g/kg）。\n用 <code>/protein 1.6</code> 改倍率，<code>/protein 0</code> 回預設 ${TARGETS.protein_per_kg}。`);
+      }
+      if (!/^\d+(\.\d+)?$/.test(v) || Number(v) > 4) {
+        return await sendMessage(chatId, "用法：<code>/protein 1.6</code>（每公斤體重幾克，0 回預設）");
+      }
+      await setSetting("protein_per_kg", Number(v) === 0 ? "" : v);
+      const t = await proteinTargetG();
+      return await sendMessage(chatId, Number(v) === 0
+        ? `倍率回到預設 ${TARGETS.protein_per_kg} g/kg。` + (t !== null ? `目標 ${t} g/天。` : "")
+        : `倍率設成 ${v} g/kg。` + (t !== null ? `目標 <b>${t} g/天</b>。` : "還沒有體重記錄，記了之後就會算。"));
     }
 
     case "/app": {

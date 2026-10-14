@@ -1,5 +1,5 @@
 // 統計查詢：當日 / 區間。Bot 的 /today /week 與每日每週推播共用同一份邏輯。
-import { db, localDate } from "./db.ts";
+import { db, getSetting, localDate } from "./db.ts";
 
 export interface MealRow {
   id: number; eaten_at: string; title: string | null; total_kcal: number | null;
@@ -243,15 +243,48 @@ export const TARGETS = {
   protein_per_kg: 1.2,
 } as const;
 
-/** 這一天達標了沒。沒量過回 null，**不要回 false**——沒量過不等於沒達標。 */
-export function metTargets(t: Totals): Record<string, boolean | null> {
+/**
+ * 這一天達標了沒。沒量過回 null，**不要回 false**——沒量過不等於沒達標。
+ * proteinTarget 由 proteinTargetG() 算，沒體重就是 null，整項不評。
+ */
+export function metTargets(t: Totals, proteinTarget: number | null = null): Record<string, boolean | null> {
   const le = (v: number | null, max: number) => (v === null ? null : v <= max);
   const ge = (v: number | null, min: number) => (v === null ? null : v >= min);
   return {
+    protein_g: proteinTarget === null ? null : t.protein_g >= proteinTarget,
     sodium_mg: le(t.sodium_mg, TARGETS.sodium_mg),
     fiber_g: ge(t.fiber_g, TARGETS.fiber_g),
     veg_servings: ge(t.veg_servings, TARGETS.veg_servings),
     added_sugar_g: le(t.added_sugar_g, TARGETS.added_sugar_g),
     sat_fat_g: le(t.sat_fat_g, TARGETS.sat_fat_g),
   };
+}
+
+// ============================================================
+// 蛋白質目標：唯一要有體重才算得出來的門檻
+//
+// TARGETS.protein_per_kg 從 2026-09-10 就在，但那時體重還沒進系統，所以沒人用它。
+// 現在 weights 表有了，目標＝最新體重 × 倍率。倍率可用 /protein 改（settings.protein_per_kg）。
+// ============================================================
+
+/** 最新一筆體重。沒記過回 null。 */
+export async function latestWeightKg(): Promise<number | null> {
+  const { data } = await db.from("weights").select("kg")
+    .order("measured_at", { ascending: false }).limit(1).maybeSingle();
+  return data ? Number(data.kg) : null;
+}
+
+/**
+ * 純函式。沒體重就 null，**不要回 0**——0 會讓「蛋白質達標」永遠成立。
+ */
+export function proteinTarget(kg: number | null, perKg: number = TARGETS.protein_per_kg): number | null {
+  if (kg === null || !Number.isFinite(kg) || kg <= 0) return null;
+  if (!Number.isFinite(perKg) || perKg <= 0) return null;
+  return Math.round(kg * perKg);
+}
+
+/** 讀設定與體重，算今天的蛋白質目標。Bot、推播、report 四支共用這一個入口。 */
+export async function proteinTargetG(): Promise<number | null> {
+  const perKg = Number(await getSetting("protein_per_kg")) || TARGETS.protein_per_kg;
+  return proteinTarget(await latestWeightKg(), perKg);
 }

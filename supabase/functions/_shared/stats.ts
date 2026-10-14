@@ -15,6 +15,7 @@ export const MEAL_COLUMNS =
   "id,eaten_at,title,total_kcal,sugar_g,protein_g,fat_g,carb_g,is_drink,source,confidence," +
   "photo_path,estimate_note,sodium_mg,fiber_g,sat_fat_g,added_sugar_g,veg_servings";
 
+// ⚠️ 時區寫死在這裡，settings 表沒有對應的設定。非台灣使用者要改的地方列在 README「在地化」一節。
 export const TZ = "Asia/Taipei";
 
 /**

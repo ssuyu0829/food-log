@@ -13,8 +13,9 @@ create table if not exists settings (
   note  text
 );
 
+-- 時區與日界線不在這裡設，寫死在 functions/_shared/stats.ts（TZ、DAY_START_HOUR）。
+-- 要改的話看 README 的「在地化」一節。
 insert into settings (key, value, note) values
-  ('tz',                'Asia/Taipei', '所有「今天」的判定基準時區'),
   ('daily_kcal_target', '',            '每日熱量目標；空字串＝不設目標，只報數字不評價'),
   ('weekly_drink_limit','',            '每週手搖杯數上限；空字串＝不設'),
   ('tg_chat_id',        '',            'Bot 只回應這個 chat_id。設定前 Bot 會告訴你你的 id'),

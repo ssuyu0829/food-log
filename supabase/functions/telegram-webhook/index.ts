@@ -10,13 +10,15 @@ import {
 import { analyzeFood, type FoodAnalysis } from "../_shared/gemini.ts";
 import { lookupDrink, parseDrink } from "../_shared/drinks.ts";
 import {
-  calibReport, correctionButtons, daySummary, itemButtons, mealReply, weekReport, weightReport,
+  againButtons, calibReport, correctionButtons, daySummary, itemButtons, mealReply, weekReport,
+  weightReport,
 } from "../_shared/format.ts";
 import {
   dayBounds, groupByDay, lastNDays, logicalDate, mealsBetween, proteinTargetG, TARGETS, totalsOf,
 } from "../_shared/stats.ts";
 import { calibrate, parseWeight, type WeighIn } from "../_shared/weight.ts";
-import { getItems, recalcMeal } from "../_shared/meal.ts";
+import { duplicateMeal, getItems, recalcMeal } from "../_shared/meal.ts";
+import { AGAIN_LIMIT, recentDistinct } from "../_shared/again.ts";
 import { parsePortion } from "../_shared/portion.ts";
 
 
@@ -63,6 +65,7 @@ async function authorize(chatId: number, text: string): Promise<boolean> {
         "",
         "<b>指令</b>",
         "/today 今天吃了什麼　/week 本週回顧",
+        "/again 再來一份：從最近吃過的挑一個直接記，不用重拍",
         "/target 1800 設每日熱量目標（/target 0 取消）",
         "/undo 刪掉最後一筆　/help 說明",
         "",
@@ -134,6 +137,7 @@ async function handleCommand(chatId: number, text: string) {
         "",
         "<b>指令</b>",
         "/today 今天　/week 本週",
+        "/again 再來一份（<code>/again 鮮奶茶</code> 可以用關鍵字找）",
         "/target 1800 設每日目標（/target 0 取消）",
         "/limit 3 設每週手搖上限（只出現在統計裡，不會當場念你）",
         "/undo 刪掉最後一筆　/app 拿報表網址",
@@ -164,6 +168,23 @@ async function handleCommand(chatId: number, text: string) {
       const prevStart = new Date(new Date(s).getTime() - 7 * 86400000).toISOString();
       const prev = await mealsBetween(prevStart, s);
       return await sendMessage(chatId, weekReport(rows, days, prev, await proteinTargetG()));
+    }
+
+    case "/again":
+    case "/a": {
+      const kw = args.join(" ");
+      // 撈最近 60 筆再去重：重複餐很多，8 個不重複的標題通常要翻好幾十筆才湊得到
+      const { data } = await db.from("meals").select("id,title,total_kcal")
+        .is("deleted_at", null).order("created_at", { ascending: false }).limit(60);
+      const list = recentDistinct(data ?? [], AGAIN_LIMIT, kw);
+      if (!list.length) {
+        return await sendMessage(chatId, kw
+          ? `最近 60 筆裡沒有標題含「${esc(kw)}」的。`
+          : "還沒有任何記錄可以重複。先記一筆吧。");
+      }
+      return await sendMessage(chatId,
+        "<b>再來一份</b>　點一下就以現在時間記一筆同樣的（份量與挑掉的細項都照上次）：",
+        againButtons(list));
     }
 
     case "/target": {
@@ -456,6 +477,21 @@ async function onCallback(cq: any) {
     return await answerCallback(cq.id, "刪掉了");
   }
 
+  // 再來一份：複製那筆成新的一筆，然後像平常記完一樣回一則帶修正按鈕的訊息
+  if (kind === "again") {
+    const meal = await duplicateMeal(mealId, { tg_chat_id: chatId, tg_message_id: cq.message.message_id });
+    if (!meal) return await answerCallback(cq.id, "找不到這筆");
+
+    const r = await renderMeal(meal.id);
+    const sent = r ? await sendMessage(chatId, r.text, r.buttons) : null;
+    if (sent?.message_id) {
+      await db.from("meals").update({ tg_reply_message_id: sent.message_id }).eq("id", meal.id);
+    }
+    // 清單那則改成「已記」，免得手滑再按一次變兩筆。要再記別的就再打 /again。
+    await editMessage(chatId, cq.message.message_id, `✅ 已再記一筆：${esc(meal.title ?? "")}`);
+    return await answerCallback(cq.id, "記好了");
+  }
+
   // 補登：把整筆往前／往後移一天。在現有時間上加減，所以按幾次就移幾天，
   // 也不會把使用者原本記的時刻弄丟。
   if (kind === "day") {
@@ -516,8 +552,18 @@ async function onCallback(cq: any) {
 async function redraw(
   chatId: number, messageId: number, mealId: number, mode: "normal" | "items" = "normal",
 ): Promise<boolean> {
+  const r = await renderMeal(mealId, mode);
+  if (!r) return false;
+  await editMessage(chatId, messageId, r.text, r.buttons);
+  return true;
+}
+
+/** 把一筆記錄畫成訊息本文＋鍵盤。redraw（改既有訊息）與 /again（發新訊息）共用。 */
+async function renderMeal(
+  mealId: number, mode: "normal" | "items" = "normal",
+): Promise<{ text: string; buttons: ReturnType<typeof correctionButtons> } | null> {
   const { data: meal } = await db.from("meals").select("*").eq("id", mealId).single();
-  if (!meal) return false;
+  if (!meal) return null;
 
   const items = await getItems(mealId);
   const mult = Number(meal.portion_multiplier ?? 1);
@@ -531,11 +577,12 @@ async function redraw(
   const dayTotals = totalsOf(await mealsBetween(s, e));
   const target = Number(await getSetting("daily_kcal_target")) || null;
 
-  await editMessage(chatId, messageId, mealReply(meal, scaled, dayTotals, target),
-    mode === "items"
+  return {
+    text: mealReply(meal, scaled, dayTotals, target),
+    buttons: mode === "items"
       ? itemButtons(mealId, items.map((i) => ({
           id: i.id, name: i.name, kcal: Number(i.kcal ?? 0) * mult, excluded: i.excluded,
         })))
-      : correctionButtons(mealId, items.length));
-  return true;
+      : correctionButtons(mealId, items.length),
+  };
 }

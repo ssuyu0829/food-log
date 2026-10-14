@@ -129,6 +129,18 @@ export function itemButtons(
   return rows;
 }
 
+/**
+ * /again 的清單。一排一顆，按下去就以現在時間複製那一筆。
+ * 標題截到 24 字：Telegram 按鈕太長會被切掉，而且前 24 字已經足夠認出是哪一餐。
+ */
+export function againButtons(meals: { id: number; title: string | null; total_kcal: number | null }[]) {
+  return meals.map((m) => {
+    const t = m.title ?? "未命名";
+    const name = t.length > 24 ? `${t.slice(0, 24)}…` : t;
+    return [{ text: `${name}　${Math.round(Number(m.total_kcal ?? 0))} kcal`, callback_data: `again:${m.id}` }];
+  });
+}
+
 /** /today 與每晚推播 */
 export function daySummary(
   rows: MealRow[], target: number | null, heading: string, proteinTarget: number | null = null,

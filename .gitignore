@@ -7,7 +7,6 @@ supabase/.branches/
 # 整行被當成含空格與 # 的檔名 pattern，這條規則等於完全沒生效。
 supabase/cron.local.sql
 .DS_Store
-deno.lock
 
 # 個人工作筆記，不進公開 repo
 NOW.md

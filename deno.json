@@ -1,0 +1,8 @@
+{
+  "tasks": {
+    "test": "cd supabase/functions/_shared && SUPABASE_URL=http://localhost SUPABASE_SERVICE_ROLE_KEY=test TELEGRAM_BOT_TOKEN=test TELEGRAM_WEBHOOK_SECRET=test GEMINI_API_KEY=test REPORT_TOKEN=test TELEGRAM_CHAT_ID=1 deno test --allow-all",
+    "check": "deno check supabase/functions/*/index.ts supabase/functions/_shared/*.ts dev/mock-server.ts supabase/build_drinks.ts",
+    "mock": "deno run --allow-net --allow-read dev/mock-server.ts",
+    "drinks": "deno run --allow-write supabase/build_drinks.ts"
+  }
+}
